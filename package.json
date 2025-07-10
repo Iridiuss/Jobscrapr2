@@ -1,0 +1,27 @@
+{
+  "name": "jobscrapr2",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Iridiuss/Jobscrapr2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Iridiuss/Jobscrapr2/issues"
+  },
+  "homepage": "https://github.com/Iridiuss/Jobscrapr2#readme",
+  "dependencies": {
+    "axios": "^1.10.0",
+    "cheerio": "^1.1.0",
+    "puppeteer-core": "^24.12.1",
+    "xml2js": "^0.6.2",
+    "yargs": "^18.0.0"
+  }
+}

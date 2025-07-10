@@ -1,0 +1,29 @@
+{
+   
+    "tcs.com": "puppeteer",
+    "infosys.com": "jsonLd",
+    "microsoft.com": "xhrApi",
+    "apple.com": "jsonLd",
+    "meta.com": "jsonLd",
+    "nvidia.com": "jsonLd",
+    "amazon.com": "xhrApi",
+    "accenture.com": "jsonLd",
+    "capgemini.com": "jsonLd",
+    "ibm.com": "jsonLd",
+    "deloitte.com": "sitemap",
+    "oracle.com": "jsonLd",
+    "sap.com": "jsonLd",
+    "hcltech.com": "jsonLd",
+    "wipro.com": "jsonLd",
+    "zoho.com": "xhrApi",
+    "adobe.com": "jsonLd",
+    "intuit.com": "jsonLd",
+    "linkedin.com": "jsonLd",
+    "ibegin.tcsapps.com": "puppeteer",
+    "southasiacareers.deloitte.com": "puppeteer",
+    "www.google.com": "puppeteer",
+    "career.infosys.com": "puppeteer",
+    "jobs.careers.microsoft.com": "puppeteer",
+    "default": "generic"
+  }
+  

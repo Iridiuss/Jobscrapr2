@@ -1,0 +1,38 @@
+{
+    "tcs.com": {
+      "url": "https://ibegin.tcsapps.com/candidate/jobs/search?keyword={keyword}",
+      "method": "GET",
+      "itemsPath": "",
+      "titleField": "title",
+      "dateField": "postedDate",
+      "urlField": "applyUrl",
+      "skillsField": "skills"
+    },
+    "microsoft.com": {
+      "url": "https://careers.microsoft.com/api/v1/jobs?search={keyword}",
+      "method": "GET",
+      "itemsPath": "jobs",
+      "titleField": "jobTitle",
+      "dateField": "postingDate",
+      "urlField": "applicationUrl",
+      "skillsField": "skills"
+    },
+    "amazon.com": {
+      "url": "https://www.amazon.jobs/en/search.json?offset=0&result_limit=100&sort=relevant&category%5B%5D=software-development&keyword={keyword}",
+      "method": "GET",
+      "itemsPath": "jobs",
+      "titleField": "job_title",
+      "dateField": "post_date",
+      "urlField": "url",
+      "skillsField": "basic_qualifications"
+    },
+    "zoho.com": {
+      "url": "https://careers.zohocorp.com/api/v1/jobs?search={keyword}",
+      "method": "GET",
+      "itemsPath": "jobs",
+      "titleField": "title",
+      "dateField": "date_posted",
+      "urlField": "apply_link",
+      "skillsField": "requirements"
+    }
+  }
