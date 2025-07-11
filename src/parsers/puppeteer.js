@@ -19,6 +19,13 @@ async function parsePuppeteer(url, keyword) {
   const keywordLower = keyword ? keyword.toLowerCase() : '';
   const isInfosys = url.includes('career.infosys.com');
   const isMicrosoft = url.includes('jobs.careers.microsoft.com');
+  const isMeta = url.includes('metacareers.com');
+  const isNvidia = url.includes('nvidia.wd5.myworkdayjobs.com');
+  const isAmazon = url.includes('amazon.jobs');
+  const isAccenture = url.includes('accenture.com');
+  const isCapgemini = url.includes('capgemini.com');
+  const isIbm = url.includes('ibm.com');
+  const isOracle = url.includes('oracle.com');
   let lastMatCardCount = null;
   while (pageNum <= 5) {
     console.log(`[Puppeteer] Extracting job listings from page ${pageNum}...`);
@@ -105,6 +112,237 @@ async function parsePuppeteer(url, keyword) {
           };
         }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
       }, keywordLower, url);
+    } else if (isMeta) {
+      await page.waitForSelector('a[href^="/jobs/"]', { timeout: 15000 }).catch(() => {
+        console.log('[Puppeteer] No Meta job links found after waiting.');
+      });
+      const debugMeta = await page.evaluate(() => {
+        const cards = Array.from(document.querySelectorAll('a[href^="/jobs/"]'));
+        return cards.map(card => card.innerText);
+      });
+      console.log(`[Puppeteer][DEBUG][Meta] job link innerText on page:`, debugMeta);
+      jobs = await page.evaluate((keywordLower) => {
+        const cards = Array.from(document.querySelectorAll('a[href^="/jobs/"]'));
+        return cards.map(card => {
+          const title = card.innerText.trim();
+          const url = 'https://www.metacareers.com' + card.getAttribute('href');
+          return {
+            title,
+            url,
+            location: '',
+            function: '',
+            experience: '',
+            datePosted: '',
+            skills: []
+          };
+        }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+      }, keywordLower);
+    } else if (isNvidia) {
+      await page.waitForSelector('li.css-1q2dra3', { timeout: 15000 }).catch(() => {
+        console.log('[Puppeteer] No NVIDIA job cards found after waiting.');
+      });
+      const debugNvidia = await page.evaluate(() => {
+        const cards = Array.from(document.querySelectorAll('li.css-1q2dra3'));
+        return cards.map(card => card.innerText);
+      });
+      console.log(`[Puppeteer][DEBUG][NVIDIA] job card innerText on page:`, debugNvidia);
+      jobs = await page.evaluate((keywordLower) => {
+        const cards = Array.from(document.querySelectorAll('li.css-1q2dra3'));
+        return cards.map(card => {
+          const titleElem = card.querySelector('a');
+          const title = titleElem ? titleElem.innerText.trim() : '';
+          const url = titleElem ? titleElem.href : '';
+          const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
+          let location = '';
+          let datePosted = '';
+          let jobId = '';
+          for (let line of lines) {
+            if (/India|Bangalore|Pune|Hyderabad|Chennai|Noida|Gurgaon|Remote/i.test(line)) location = line;
+            if (/Today|Yesterday|\d{1,2} \w{3,9} \d{4}/i.test(line)) datePosted = line;
+            if (/^JR\d+$/i.test(line)) jobId = line;
+          }
+          return {
+            title,
+            url,
+            location,
+            function: '',
+            experience: '',
+            datePosted,
+            jobId,
+            skills: []
+          };
+        }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+      }, keywordLower);
+    } else if (isAmazon) {
+      await page.waitForSelector('ul.jobs-module_root__gY8Hp > li', { timeout: 15000 }).catch(() => {
+        console.log('[Puppeteer] No Amazon job cards found after waiting.');
+      });
+      const debugAmazon = await page.evaluate(() => {
+        const cards = Array.from(document.querySelectorAll('ul.jobs-module_root__gY8Hp > li'));
+        return cards.map(card => card.innerText);
+      });
+      console.log(`[Puppeteer][DEBUG][Amazon] job card innerText on page:`, debugAmazon);
+      jobs = await page.evaluate((keywordLower) => {
+        const cards = Array.from(document.querySelectorAll('ul.jobs-module_root__gY8Hp > li'));
+        return cards.map(card => {
+          const titleElem = card.querySelector('a');
+          const title = titleElem ? titleElem.innerText.trim() : '';
+          const url = titleElem ? titleElem.href : '';
+          const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
+          let location = '';
+          let datePosted = '';
+          let description = '';
+          for (let line of lines) {
+            if (/India|Bangalore|Pune|Hyderabad|Chennai|Noida|Gurgaon|Remote/i.test(line)) location = line;
+            if (/Updated|\d{1,2}\/\d{1,2}\/\d{4}/i.test(line)) datePosted = line;
+          }
+          // Description: the first line after the title and location/date
+          if (lines.length > 3) description = lines[3];
+          return {
+            title,
+            url,
+            location,
+            function: '',
+            experience: '',
+            datePosted,
+            description,
+            skills: []
+          };
+        }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+      }, keywordLower);
+    } else if (isAccenture) {
+      await page.waitForSelector('div.rad-filters-vertical__job-card', { timeout: 15000 }).catch(() => {
+        console.log('[Puppeteer] No Accenture job cards found after waiting.');
+      });
+      const debugAccenture = await page.evaluate(() => {
+        const cards = Array.from(document.querySelectorAll('div.rad-filters-vertical__job-card'));
+        return cards.map(card => card.innerText);
+      });
+      console.log(`[Puppeteer][DEBUG][Accenture] job card innerText on page:`, debugAccenture);
+      jobs = await page.evaluate((keywordLower, url) => {
+        const cards = Array.from(document.querySelectorAll('div.rad-filters-vertical__job-card'));
+        return cards.map(card => {
+          // Title: first line
+          const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
+          const title = lines[0] || '';
+          // Location, Experience, etc. are in the next lines
+          let location = '';
+          let experience = '';
+          let requiredSkill = '';
+          for (let line of lines) {
+            if (/locations?/i.test(line)) location = line;
+            if (/Experience:/i.test(line)) experience = line.replace('Experience:', '').trim();
+            if (/Required Skill:/i.test(line)) requiredSkill = line.replace('Required Skill:', '').trim();
+          }
+          return {
+            title,
+            url,
+            location,
+            function: '',
+            experience,
+            datePosted: '',
+            requiredSkill,
+            skills: []
+          };
+        }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+      }, keywordLower, url);
+    } else if (isCapgemini) {
+      await page.waitForSelector('a.table-tr.filter-box.tag-active.joblink', { timeout: 15000 }).catch(() => {
+        console.log('[Puppeteer] No Capgemini job cards found after waiting.');
+      });
+      const debugCapgemini = await page.evaluate(() => {
+        const cards = Array.from(document.querySelectorAll('a.table-tr.filter-box.tag-active.joblink'));
+        return cards.map(card => card.innerText);
+      });
+      console.log(`[Puppeteer][DEBUG][Capgemini] job card innerText on page:`, debugCapgemini);
+      jobs = await page.evaluate((keywordLower) => {
+        const cards = Array.from(document.querySelectorAll('a.table-tr.filter-box.tag-active.joblink'));
+        return cards.map(card => {
+          const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
+          const title = lines[0] || '';
+          const location = lines[2] || '';
+          const experience = (title.match(/\|\s*([\d\-]+\s*years)/i) ? title.match(/\|\s*([\d\-]+\s*years)/i)[1] : '');
+          const jobType = lines[3] || '';
+          const url = card.href.startsWith('http') ? card.href : ('https://www.capgemini.com' + card.getAttribute('href'));
+          return {
+            title,
+            url,
+            location,
+            function: jobType,
+            experience,
+            datePosted: '',
+            skills: []
+          };
+        }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+      }, keywordLower);
+    } else if (isIbm) {
+      // Wait extra for jobs to load (cross-version compatible)
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      await page.waitForSelector('div.bx--card_wrapper', { timeout: 15000 }).catch(() => {
+        console.log('[Puppeteer] No IBM job cards found after waiting.');
+      });
+      const debugIbmWrappers = await page.evaluate(() => {
+        const cards = Array.from(document.querySelectorAll('div.bx--card_wrapper'));
+        return cards.map(card => card.innerText);
+      });
+      console.log(`[Puppeteer][DEBUG][IBM] Found ${debugIbmWrappers.length} card wrappers. InnerText:`, debugIbmWrappers);
+      jobs = await page.evaluate((keywordLower) => {
+        const cards = Array.from(document.querySelectorAll('div.bx--card_wrapper'));
+        return cards.map(card => {
+          const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
+          const category = lines[0] || '';
+          const title = lines[1] || '';
+          const level = lines[2] || '';
+          const location = lines[3] || '';
+          // Try to find a job link in parent or ancestor a
+          let url = '';
+          let parent = card.parentElement;
+          while (parent && parent.tagName !== 'A') parent = parent.parentElement;
+          if (parent && parent.tagName === 'A') {
+            url = parent.href.startsWith('http') ? parent.href : ('https://www.ibm.com' + parent.getAttribute('href'));
+          }
+          return {
+            title,
+            url,
+            location,
+            function: category,
+            experience: level,
+            datePosted: '',
+            skills: []
+          };
+        }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+      }, keywordLower);
+      console.log(`[Puppeteer][DEBUG][IBM] Extracted jobs:`, jobs);
+    } else if (isOracle) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      await page.waitForSelector("li[data-qa='searchResultItem']", { timeout: 15000 }).catch(() => {
+        console.log('[Puppeteer] No Oracle job cards found after waiting.');
+      });
+      const debugOracle = await page.evaluate(() => {
+        const cards = Array.from(document.querySelectorAll("li[data-qa='searchResultItem']"));
+        return cards.map(card => card.innerText);
+      });
+      console.log(`[Puppeteer][DEBUG][Oracle] Found ${debugOracle.length} job cards. InnerText:`, debugOracle);
+      jobs = await page.evaluate((keywordLower) => {
+        const cards = Array.from(document.querySelectorAll("li[data-qa='searchResultItem']"));
+        return cards.map(card => {
+          const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
+          const title = lines[0] || '';
+          const location = lines[1] || '';
+          const description = lines.slice(2).join(' ');
+          return {
+            title,
+            url: '', // Could extract from a child <a> if present
+            location,
+            function: '',
+            experience: '',
+            datePosted: '',
+            description,
+            skills: []
+          };
+        }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+      }, keywordLower);
+      console.log(`[Puppeteer][DEBUG][Oracle] Extracted jobs:`, jobs);
     } else {
       jobs = await page.evaluate((keywordLower) => {
         return Array.from(document.querySelectorAll('div.row.custom-row.searched-job, tr.job, tr.data-row, div.job-tile, div.job-listing, li.job, div.job, div.job-list-item')).map(jobDiv => {
