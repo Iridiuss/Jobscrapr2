@@ -1,32 +1,22 @@
 [
   {
     "title": "Application Developer",
-    "url": "https://www.accenture.com/in-en/careers/jobsearch?ct=Bengaluru",
-    "location": "Various locations",
+    "url": "https://www.accenture.com/in-en/careers/jobdetails?id=ATCI-4918701-S1867457_en&title=Application+Developer",
+    "location": "Bengaluru",
     "function": "",
-    "experience": "5-10 years",
+    "experience": "2-5 years",
     "datePosted": "",
-    "requiredSkill": "SAP ABAP Development for HANA",
+    "requiredSkill": "Salesforce Lightning Web Components",
     "skills": []
   },
   {
     "title": "Application Developer",
-    "url": "https://www.accenture.com/in-en/careers/jobsearch?ct=Bengaluru",
-    "location": "",
+    "url": "https://www.accenture.com/in-en/careers/jobdetails?id=ATCI-4918700-S1867455_en&title=Application+Developer",
+    "location": "Bengaluru",
     "function": "",
     "experience": "2-5 years",
     "datePosted": "",
-    "requiredSkill": "React.js, ETL testing",
-    "skills": []
-  },
-  {
-    "title": "Application Developer",
-    "url": "https://www.accenture.com/in-en/careers/jobsearch?ct=Bengaluru",
-    "location": "",
-    "function": "",
-    "experience": "2-5 years",
-    "datePosted": "",
-    "requiredSkill": "Microsoft Power Apps, ETL testing",
+    "requiredSkill": "Salesforce Lightning Web Components",
     "skills": []
   }
 ]

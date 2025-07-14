@@ -114,6 +114,11 @@ async function scrapeJobs(options) {
     companyUrl = 'https://www.amazon.jobs/content/en/locations/india/bangalore';
   }
 
+  // Special case for amazon.jobs: use the Amazon jobs search page
+  if (companyUrl.includes('amazon.jobs')) {
+    companyUrl = 'https://www.amazon.jobs/content/en/locations/india/bangalore';
+  }
+
   // Special case for accenture.com: use the Accenture jobs search page
   if (companyUrl.includes('accenture.com')) {
     companyUrl = 'https://www.accenture.com/in-en/careers/jobsearch?ct=Bengaluru';
@@ -132,6 +137,26 @@ async function scrapeJobs(options) {
   // Special case for oracle.com: use the Oracle jobs search page
   if (companyUrl.includes('oracle.com')) {
     companyUrl = 'https://careers.oracle.com/en/sites/jobsearch/jobs?lastSelectedFacet=AttributeChar13&location=India&locationId=300000000106947&locationLevel=country&mode=location&selectedFlexFieldsFacets="AttributeChar13%7CProfessional%3BCampus"';
+  }
+
+  // Special case for sap.com: use the SAP Bangalore jobs search page
+  if (companyUrl.includes('sap.com')) {
+    companyUrl = 'https://jobs.sap.com/go/SAP-Jobs-in-Bangalore/942201/';
+  }
+
+  // Special case for hcltech.com: use the HCLTech careers opportunities page
+  if (companyUrl.includes('hcltech.com')) {
+    companyUrl = 'https://www.hcltech.com/careers/opportunities';
+  }
+
+  // Special case for wipro.com: use the Wipro careers search page
+  if (companyUrl.includes('wipro.com')) {
+    companyUrl = 'https://careers.wipro.com/search/?createNewAlert=false&q=&locationsearch=india';
+  }
+
+  // Special case for adobe.com: use the Adobe engineering and product jobs page
+  if (companyUrl.includes('adobe.com')) {
+    companyUrl = 'https://careers.adobe.com/us/en/c/engineering-and-product-jobs';
   }
 
   return await dispatch(companyUrl, job);

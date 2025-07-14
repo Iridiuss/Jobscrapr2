@@ -1,24 +1,15 @@
 {
    
     "tcs.com": "puppeteer",
-    "infosys.com": "jsonLd",
-    "microsoft.com": "xhrApi",
-    "apple.com": "jsonLd",
     "metacareers.com": "puppeteer",
-    "nvidia.com": "jsonLd",
     "accenture.com": "puppeteer",
     "capgemini.com": "puppeteer",
     "ibm.com": "puppeteer",
     "deloitte.com": "sitemap",
     "oracle.com": "puppeteer",
     "careers.oracle.com": "puppeteer",
-    "sap.com": "jsonLd",
-    "hcltech.com": "jsonLd",
-    "wipro.com": "jsonLd",
-    "zoho.com": "xhrApi",
-    "adobe.com": "jsonLd",
-    "intuit.com": "jsonLd",
-    "linkedin.com": "jsonLd",
+    "sap.com": "puppeteer",
+    "jobs.sap.com": "puppeteer",
     "ibegin.tcsapps.com": "puppeteer",
     "southasiacareers.deloitte.com": "puppeteer",
     "www.google.com": "puppeteer",
@@ -28,6 +19,9 @@
     "www.metacareers.com": "puppeteer",
     "nvidia.wd5.myworkdayjobs.com": "puppeteer",
     "www.amazon.jobs": "puppeteer",
-    "default": "generic"
+    "amazon.jobs": "puppeteer",
+    "default": "generic",
+    "careers.adobe.com": "puppeteer",
+    "careers.wipro.com": "puppeteer"
   }
   
