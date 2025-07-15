@@ -107,89 +107,157 @@ async function parsePuppeteer(url, keyword) {
       jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
       lastMatCardCount = jobs.length;
     } else if (isMicrosoft) {
-      await page.waitForSelector('div.ms-DocumentCard', { timeout: 15000 }).catch(() => {
-        console.log('[Puppeteer] No ms-DocumentCard found after waiting.');
-      });
-      const debugMicrosoft = await page.evaluate(() => {
-        const cards = Array.from(document.querySelectorAll('div.ms-DocumentCard'));
-        return cards.map(card => card.innerText);
-      });
-      console.log(`[Puppeteer][DEBUG][Microsoft] ms-DocumentCard innerText on page:`, debugMicrosoft);
-      jobs = await page.evaluate((url) => {
-        const cards = Array.from(document.querySelectorAll('div.ms-DocumentCard'));
-        return cards.map(card => {
-          let title = '';
-          const strong = card.querySelector('strong');
-          const h3 = card.querySelector('h3');
-          if (strong) title = strong.innerText.trim();
-          else if (h3) title = h3.innerText.trim();
-          else title = card.innerText.split('\n')[0].trim();
-          const text = card.innerText;
-          let location = '';
-          let datePosted = '';
-          const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-          // Find location
-          for (let line of lines) {
-            if (/\b(India|Bangalore|Hyderabad|Noida|Gurgaon|Chennai|Pune|Delhi|Mumbai|Kolkata|Remote)\b/i.test(line)) {
-              location = line;
-              break;
-            }
-          }
-          // Find the first date-like line after the title
-          let foundTitle = false;
-          for (let line of lines) {
-            if (!foundTitle && line === title) {
-              foundTitle = true;
-              continue;
-            }
-            if (foundTitle && /\bToday\b|\d+\s+day\s+ago|\d{1,2}\s+\w{3,9}\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}/i.test(line)) {
-              datePosted = line;
-              break;
-            }
-          }
-          let url = '';
-          // (URL extraction left as is or empty)
-          return {
-            title,
-            location,
-            datePosted,
-            url
-          };
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      let allJobs = [];
+      let jobsPerPage = [];
+      for (let pageNum = 1; pageNum <= 5; pageNum++) {
+        await page.waitForSelector('div.ms-DocumentCard', { timeout: 15000 }).catch(() => {
+          console.log('[Puppeteer] No ms-DocumentCard found after waiting.');
         });
-      }, url);
-      jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        let jobs = await page.evaluate((url) => {
+          const cards = Array.from(document.querySelectorAll('div.ms-DocumentCard'));
+          return cards.map(card => {
+            let title = '';
+            const strong = card.querySelector('strong');
+            const h3 = card.querySelector('h3');
+            if (strong) title = strong.innerText.trim();
+            else if (h3) title = h3.innerText.trim();
+            else title = card.innerText.split('\n')[0].trim();
+            const text = card.innerText;
+            let location = '';
+            let datePosted = '';
+            const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+            // Find location
+            for (let line of lines) {
+              if (/\b(India|Bangalore|Hyderabad|Noida|Gurgaon|Chennai|Pune|Delhi|Mumbai|Kolkata|Remote)\b/i.test(line)) {
+                location = line;
+                break;
+              }
+            }
+            // Find the first date-like line after the title
+            let foundTitle = false;
+            for (let line of lines) {
+              if (!foundTitle && line === title) {
+                foundTitle = true;
+                continue;
+              }
+              if (foundTitle && /\bToday\b|\d+\s+day\s+ago|\d{1,2}\s+\w{3,9}\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}/i.test(line)) {
+                datePosted = line;
+                break;
+              }
+            }
+            let url = '';
+            // (URL extraction left as is or empty)
+            return {
+              title,
+              location,
+              datePosted,
+              url
+            };
+          });
+        }, url);
+        jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        allJobs = allJobs.concat(jobs);
+        jobsPerPage.push(jobs.length);
+        // Log only the first 3 job titles for this page
+        console.log(`[Puppeteer][Microsoft][Page ${pageNum}] First 3 job titles:`, jobs.slice(0, 3).map(j => j.title));
+        // Debug: Print pagination controls HTML
+        const paginationHtml = await page.evaluate(() => {
+          const paginators = Array.from(document.querySelectorAll('nav, ul, li, button, a, div')).filter(el => el.innerText && /\d|>|Next|Previous/i.test(el.innerText));
+          return paginators.map(el => el.outerHTML);
+        });
+        console.log(`[Puppeteer][DEBUG][Microsoft][Page ${pageNum}] Pagination controls outerHTML:`, paginationHtml);
+        // Click the Next button if not on the last page
+        if (pageNum < 5) {
+          const nextBtnSelector = 'button[aria-label="Go to next page"]';
+          await page.waitForSelector(nextBtnSelector, { timeout: 10000 });
+          const nextBtn = await page.$(nextBtnSelector);
+          if (nextBtn) {
+            await nextBtn.evaluate(b => b.scrollIntoView());
+            const isDisabled = await (await nextBtn.getProperty('disabled')).jsonValue().catch(() => false);
+            if (!isDisabled) {
+              await Promise.all([
+                page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }),
+                nextBtn.click()
+              ]);
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              console.log(`[Puppeteer][Microsoft] Clicked Next button for page ${pageNum + 1}.`);
+            } else {
+              console.log(`[Puppeteer][Microsoft] Next button is disabled on page ${pageNum}.`);
+              break;
+            }
+          } else {
+            console.log(`[Puppeteer][Microsoft] Could not find Next button on page ${pageNum}.`);
+            break;
+          }
+        }
+      }
+      jobs = allJobs;
+      // Log summary
+      console.log(`[Puppeteer][Microsoft] Pagination summary: jobs per page:`, jobsPerPage);
+      console.log(`[Puppeteer][Microsoft] Total jobs extracted from first 5 pages: ${jobs.length}`);
+      console.log(`[Puppeteer][Microsoft] First 10 jobs:`, jobs.slice(0, 10));
     } else if (isMeta) {
-      await page.waitForSelector('a[href^="/jobs/"]', { timeout: 15000 }).catch(() => {
-        console.log('[Puppeteer] No Meta job links found after waiting.');
-      });
-      const debugMeta = await page.evaluate(() => {
-        const cards = Array.from(document.querySelectorAll('a[href^="/jobs/"]'));
-        return cards.map(card => card.innerText);
-      });
-      console.log(`[Puppeteer][DEBUG][Meta] job link innerText on page:`, debugMeta);
-      jobs = await page.evaluate(() => {
-        const cards = Array.from(document.querySelectorAll('a[href^="/jobs/"]'));
-        return cards.map(card => {
-          const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
-          const title = lines[0] || '';
-          // Try to find a line that looks like a location (e.g., "Bangalore, India")
-          let location = '';
-          for (let i = 1; i < lines.length; i++) {
-            if (/^[A-Za-z ]+, [A-Za-z ]+$/.test(lines[i])) {
-              location = lines[i];
-              break;
-            }
+      let allJobs = [];
+      let jobsPerPage = [];
+      for (let pageNum = 1; pageNum <= 5; pageNum++) {
+        if (pageNum > 1) {
+          // Click the page number link for the next page
+          const pageLinkSelector = `a[href*='page=${pageNum}']`;
+          const pageLink = await page.$(pageLinkSelector);
+          if (!pageLink) {
+            console.log(`[Puppeteer][Meta] No page link for page ${pageNum} (likely last page). Stopping pagination.`);
+            break;
           }
-          const url = 'https://www.metacareers.com' + card.getAttribute('href');
-          return {
-            title,
-            location,
-            datePosted: '',
-            url
-          };
+          await pageLink.evaluate(b => b.scrollIntoView());
+          await Promise.all([
+            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }),
+            pageLink.click()
+          ]);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          console.log(`[Puppeteer][Meta] Clicked page ${pageNum} link.`);
+        }
+        await page.waitForSelector('a[href^="/jobs/"]', { timeout: 15000 }).catch(() => {
+          console.log('[Puppeteer] No Meta job links found after waiting.');
         });
-      });
-      jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        const debugMeta = await page.evaluate(() => {
+          const cards = Array.from(document.querySelectorAll('a[href^="/jobs/"]'));
+          return cards.map(card => card.innerText);
+        });
+        console.log(`[Puppeteer][DEBUG][Meta][Page ${pageNum}] job link innerText on page:`, debugMeta.slice(0, 3));
+        let jobs = await page.evaluate(() => {
+          const cards = Array.from(document.querySelectorAll('a[href^="/jobs/"]'));
+          return cards.map(card => {
+            const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
+            const title = lines[0] || '';
+            // Try to find a line that looks like a location (e.g., "Bangalore, India")
+            let location = '';
+            for (let i = 1; i < lines.length; i++) {
+              if (/^[A-Za-z ]+, [A-Za-z ]+$/.test(lines[i])) {
+                location = lines[i];
+                break;
+              }
+            }
+            const url = 'https://www.metacareers.com' + card.getAttribute('href');
+            return {
+              title,
+              location,
+              datePosted: '',
+              url
+            };
+          });
+        });
+        jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        allJobs = allJobs.concat(jobs);
+        jobsPerPage.push(jobs.length);
+        // Log only the first 3 job titles for this page
+        console.log(`[Puppeteer][Meta][Page ${pageNum}] First 3 job titles:`, jobs.slice(0, 3).map(j => j.title));
+      }
+      jobs = allJobs;
+      // Log summary
+      console.log(`[Puppeteer][Meta] Pagination summary: jobs per page:`, jobsPerPage);
+      console.log(`[Puppeteer][Meta] Total jobs extracted from first 5 pages: ${jobs.length}`);
+      console.log(`[Puppeteer][Meta] First 10 jobs:`, jobs.slice(0, 10));
     } else if (isNvidia) {
       await new Promise(resolve => setTimeout(resolve, 5000));
       let allJobs = [];
@@ -1062,7 +1130,7 @@ async function parsePuppeteer(url, keyword) {
       console.log(`[Puppeteer][DEBUG][Infosys] Clicked next arrow for next page: ${hasNext}`);
     } else if (isMicrosoft) {
       // Microsoft: click the next page button if present
-      const nextBtnSelector = 'button[data-automation-id="pagination-next"]';
+      const nextBtnSelector = 'button[aria-label="Go to next page"]';
       const nextBtnExists = await page.$(nextBtnSelector);
       if (nextBtnExists) {
         try {
