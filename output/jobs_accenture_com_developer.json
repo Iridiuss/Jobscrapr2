@@ -1,22 +1,72 @@
 [
   {
     "title": "Application Developer",
-    "url": "https://www.accenture.com/in-en/careers/jobdetails?id=ATCI-4918701-S1867457_en&title=Application+Developer",
+    "url": "https://www.accenture.com/in-en/careers/jobdetails?id=ATCI-5058342-S1873402_en&title=Application+Developer",
     "location": "Bengaluru",
     "function": "",
     "experience": "2-5 years",
     "datePosted": "",
-    "requiredSkill": "Salesforce Lightning Web Components",
+    "requiredSkill": "Multiplatform Front End Development React",
     "skills": []
   },
   {
     "title": "Application Developer",
-    "url": "https://www.accenture.com/in-en/careers/jobdetails?id=ATCI-4918700-S1867455_en&title=Application+Developer",
+    "url": "https://www.accenture.com/in-en/careers/jobdetails?id=ATCI-5058478-S1873447_en&title=Application+Developer",
     "location": "Bengaluru",
     "function": "",
     "experience": "2-5 years",
     "datePosted": "",
-    "requiredSkill": "Salesforce Lightning Web Components",
+    "requiredSkill": "Spring Boot",
+    "skills": []
+  },
+  {
+    "title": "Application Developer",
+    "url": "https://www.accenture.com/in-en/careers/jobdetails?id=ATCI-5058373-S1873449_en&title=Application+Developer",
+    "location": "Bengaluru",
+    "function": "",
+    "experience": "2-5 years",
+    "datePosted": "",
+    "requiredSkill": "Multiplatform Front End Development React",
+    "skills": []
+  },
+  {
+    "title": "Application Developer",
+    "url": "https://www.accenture.com/in-en/careers/jobdetails?id=ATCI-5050807-S1872410_en&title=Application+Developer",
+    "location": "Bengaluru",
+    "function": "",
+    "experience": "2-5 years",
+    "datePosted": "",
+    "requiredSkill": "Salesforce Conga CLM",
+    "skills": []
+  },
+  {
+    "title": "Application Developer",
+    "url": "https://www.accenture.com/in-en/careers/jobdetails?id=ATCI-5054654-S1872395_en&title=Application+Developer",
+    "location": "Bengaluru",
+    "function": "",
+    "experience": "2-5 years",
+    "datePosted": "",
+    "requiredSkill": "SAP Master Data Migration",
+    "skills": []
+  },
+  {
+    "title": "Application Developer",
+    "url": "https://www.accenture.com/in-en/careers/jobdetails?id=ATCI-5056556-S1871932_en&title=Application+Developer",
+    "location": "Bengaluru",
+    "function": "",
+    "experience": "2-5 years",
+    "datePosted": "",
+    "requiredSkill": "Ab Initio",
+    "skills": []
+  },
+  {
+    "title": "Application Developer",
+    "url": "https://www.accenture.com/in-en/careers/jobdetails?id=ATCI-5058365-S1873454_en&title=Application+Developer",
+    "location": "Bengaluru",
+    "function": "",
+    "experience": "2-5 years",
+    "datePosted": "",
+    "requiredSkill": "Multiplatform Front End Development React",
     "skills": []
   }
 ]

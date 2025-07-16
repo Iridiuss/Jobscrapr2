@@ -12,7 +12,7 @@ async function parsePuppeteer(url, keyword) {
   });
   const page = await browser.newPage();
   console.log(`[Puppeteer] Navigating to ${url}`);
-  await page.goto(url, { waitUntil: 'networkidle2' });
+  await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
 
   let allJobs = [];
   let pageNum = 1;
@@ -39,20 +39,29 @@ async function parsePuppeteer(url, keyword) {
     console.log(`[Puppeteer][DEBUG] URL: ${url}, isGoogle: ${isGoogle}`);
     let jobs = [];
     if (isInfosys) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      let allJobs = [];
+      let jobsPerPage = [];
+      
+      for (let pageNum = 1; pageNum <= 5; pageNum++) {
+        console.log(`[Puppeteer][Infosys] Processing page ${pageNum}...`);
+        
       await page.waitForSelector('mat-card', { timeout: 15000 }).catch(() => {
         console.log('[Puppeteer] No mat-card found after waiting.');
       });
-      const debugInfosys = await page.evaluate(() => {
+        
+        const debugInfosys = await page.evaluate(() => {
         const cards = Array.from(document.querySelectorAll('mat-card'));
-        return cards.slice(0, 2).map(card => ({
-          innerText: card.innerText,
-          links: Array.from(card.querySelectorAll('a')).map(a => ({ href: a.href, text: a.innerText })),
-          onclick: card.getAttribute('onclick'),
-          dataAttributes: Array.from(card.attributes).filter(attr => attr.name.startsWith('data-'))
-        }));
-      });
-      console.log(`[Puppeteer][DEBUG][Infosys] mat-card details:`, JSON.stringify(debugInfosys, null, 2));
-      jobs = await page.evaluate((url) => {
+          return cards.slice(0, 2).map(card => ({
+            innerText: card.innerText,
+            links: Array.from(card.querySelectorAll('a')).map(a => ({ href: a.href, text: a.innerText })),
+            onclick: card.getAttribute('onclick'),
+            dataAttributes: Array.from(card.attributes).filter(attr => attr.name.startsWith('data-'))
+          }));
+        });
+        console.log(`[Puppeteer][DEBUG][Infosys][Page ${pageNum}] mat-card details:`, JSON.stringify(debugInfosys, null, 2));
+        
+        let jobs = await page.evaluate((url) => {
         const cards = Array.from(document.querySelectorAll('mat-card'));
         return cards.map(card => {
           const titleElem = card.querySelector('.job-titleTxt');
@@ -61,102 +70,169 @@ async function parsePuppeteer(url, keyword) {
           const location = locationElem ? locationElem.innerText.trim() : '';
           const dateElem = card.querySelector('.job-dateTxt, .job-date');
           const datePosted = dateElem ? dateElem.innerText.trim() : '';
-          
-          // Extract experience from the card text
-          let experience = '';
-          const cardText = card.innerText;
-          const experienceMatch = cardText.match(/Work Experience of (\d+ Years to \d+ Years)/);
-          if (experienceMatch) {
-            experience = experienceMatch[0];
-          }
-          
-          // Try to extract URL from the card
-          let jobUrl = '';
+            
+            // Extract experience from the card text
+            let experience = '';
+            const cardText = card.innerText;
+            const experienceMatch = cardText.match(/Work Experience of (\d+ Years to \d+ Years)/);
+            if (experienceMatch) {
+              experience = experienceMatch[0];
+            }
+            
+            // Try to extract URL from the card
+            let jobUrl = '';
           const link = card.querySelector('a');
           if (link) {
-            jobUrl = link.href || '';
-            // If the URL is javascript:void(0) or similar, try to find a better URL
-            if (jobUrl === 'javascript:void(0);' || jobUrl === '#' || !jobUrl.startsWith('http')) {
-              // Try to find any other link in the card
-              const allLinks = card.querySelectorAll('a');
-              for (const l of allLinks) {
-                if (l.href && l.href.startsWith('http') && !l.href.includes('javascript')) {
-                  jobUrl = l.href;
-                  break;
+              jobUrl = link.href || '';
+              // If the URL is javascript:void(0) or similar, try to find a better URL
+              if (jobUrl === 'javascript:void(0);' || jobUrl === '#' || !jobUrl.startsWith('http')) {
+                // Try to find any other link in the card
+                const allLinks = card.querySelectorAll('a');
+                for (const l of allLinks) {
+                  if (l.href && l.href.startsWith('http') && !l.href.includes('javascript')) {
+                    jobUrl = l.href;
+                    break;
+                  }
                 }
               }
             }
-          }
-          
-          // For Infosys, leave URL empty for now
-          if (!jobUrl || jobUrl === 'javascript:void(0);' || jobUrl === '#' || jobUrl === url) {
-            jobUrl = '';
-          }
-          
-          return {
-            title,
-            location,
-            datePosted,
-            url: jobUrl,
-            experience,
-            function: '',
-            skills: []
-          };
+            
+            // For Infosys, leave URL empty for now
+            if (!jobUrl || jobUrl === 'javascript:void(0);' || jobUrl === '#' || jobUrl === url) {
+              jobUrl = '';
+            }
+            
+                      return {
+              title,
+              location,
+              experience
+            };
         });
       }, url);
+        
+        // Filter jobs by keyword
       jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        allJobs = allJobs.concat(jobs);
+        jobsPerPage.push(jobs.length);
       lastMatCardCount = jobs.length;
+        
+        console.log(`[Puppeteer][Infosys][Page ${pageNum}] Extracted ${jobs.length} jobs:`);
+        jobs.forEach((job, index) => {
+          console.log(`  ${index + 1}. ${job.title} - ${job.location} - ${job.datePosted}`);
+        });
+        
+        // Navigate to next page if not on the last page
+        if (pageNum < 5) {
+          try {
+            // Look for pagination controls - Infosys uses ul.pagination
+            const nextArrowSelector = 'ul.pagination li.pointer:not(.disabled) a';
+            const nextArrowExists = await page.$(nextArrowSelector);
+            
+            if (nextArrowExists) {
+              await nextArrowExists.evaluate(b => b.scrollIntoView());
+              await Promise.all([
+                page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }),
+                nextArrowExists.click()
+              ]);
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              console.log(`[Puppeteer][Infosys] Clicked next arrow for page ${pageNum + 1}.`);
+              
+              // Wait for job cards to load on new page
+              await page.waitForFunction((prevCount) => {
+                return document.querySelectorAll('mat-card').length !== prevCount;
+              }, { timeout: 15000 }, lastMatCardCount);
+            } else {
+              console.log(`[Puppeteer][Infosys] Could not find next arrow on page ${pageNum}.`);
+              break;
+            }
+          } catch (error) {
+            console.log(`[Puppeteer][Infosys] Error navigating to next page: ${error.message}`);
+            break;
+          }
+        }
+      }
+      
+      // Remove duplicates based on title and URL
+      const uniqueJobs = [];
+      const seenJobs = new Set();
+      for (const job of allJobs) {
+        const jobKey = `${job.title}|${job.url}`;
+        if (!seenJobs.has(jobKey)) {
+          seenJobs.add(jobKey);
+          uniqueJobs.push(job);
+        }
+      }
+      jobs = uniqueJobs;
+      
+      // Log summary
+      console.log(`[Puppeteer][Infosys] Pagination summary: jobs per page:`, jobsPerPage);
+      console.log(`[Puppeteer][Infosys] Total jobs extracted from first 5 pages: ${jobs.length}`);
+      console.log(`[Puppeteer][Infosys] First 10 jobs:`, jobs.slice(0, 10));
     } else if (isMicrosoft) {
       await new Promise(resolve => setTimeout(resolve, 5000));
       let allJobs = [];
       let jobsPerPage = [];
       for (let pageNum = 1; pageNum <= 5; pageNum++) {
-        await page.waitForSelector('div.ms-DocumentCard', { timeout: 15000 }).catch(() => {
-          console.log('[Puppeteer] No ms-DocumentCard found after waiting.');
-        });
+      await page.waitForSelector('div.ms-DocumentCard', { timeout: 15000 }).catch(() => {
+        console.log('[Puppeteer] No ms-DocumentCard found after waiting.');
+      });
         let jobs = await page.evaluate((url) => {
-          const cards = Array.from(document.querySelectorAll('div.ms-DocumentCard'));
-          return cards.map(card => {
-            let title = '';
-            const strong = card.querySelector('strong');
-            const h3 = card.querySelector('h3');
-            if (strong) title = strong.innerText.trim();
-            else if (h3) title = h3.innerText.trim();
-            else title = card.innerText.split('\n')[0].trim();
-            const text = card.innerText;
-            let location = '';
-            let datePosted = '';
-            const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+        const cards = Array.from(document.querySelectorAll('div.ms-DocumentCard'));
+        return cards.map(card => {
+          let title = '';
+          const strong = card.querySelector('strong');
+          const h3 = card.querySelector('h3');
+          if (strong) title = strong.innerText.trim();
+          else if (h3) title = h3.innerText.trim();
+          else title = card.innerText.split('\n')[0].trim();
+          const text = card.innerText;
+          let location = '';
+          let datePosted = '';
+          const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
             // Find location
-            for (let line of lines) {
-              if (/\b(India|Bangalore|Hyderabad|Noida|Gurgaon|Chennai|Pune|Delhi|Mumbai|Kolkata|Remote)\b/i.test(line)) {
-                location = line;
-                break;
-              }
+          for (let line of lines) {
+            if (/\b(India|Bangalore|Hyderabad|Noida|Gurgaon|Chennai|Pune|Delhi|Mumbai|Kolkata|Remote)\b/i.test(line)) {
+              location = line;
+              break;
             }
+          }
             // Find the first date-like line after the title
             let foundTitle = false;
-            for (let line of lines) {
+          for (let line of lines) {
               if (!foundTitle && line === title) {
                 foundTitle = true;
                 continue;
               }
               if (foundTitle && /\bToday\b|\d+\s+day\s+ago|\d{1,2}\s+\w{3,9}\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}/i.test(line)) {
-                datePosted = line;
-                break;
-              }
+              datePosted = line;
+              break;
             }
-            let url = '';
-            // (URL extraction left as is or empty)
-            return {
-              title,
-              location,
-              datePosted,
-              url
-            };
+          }
+          let url = '';
+          // Try to extract URL from the job card by job ID
+          const jobItem = card.closest('[aria-label^="Job item"]');
+          if (jobItem) {
+            const match = jobItem.getAttribute('aria-label').match(/Job item (\d+)/);
+            if (match) {
+              url = `https://jobs.careers.microsoft.com/global/en/job/${match[1]}`;
+            }
+          }
+          // Debug: log the card structure to understand URL extraction
+          console.log(`[Puppeteer][DEBUG][Microsoft] Card structure for "${title}":`, {
+            hasJobItem: !!jobItem,
+            jobId: jobItem ? jobItem.getAttribute('aria-label') : 'no job item',
+            url: url,
+            cardHTML: card.outerHTML.substring(0, 200)
           });
-        }, url);
-        jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+          return {
+            title,
+            location,
+            datePosted,
+            url
+          };
+        });
+      }, url);
+      jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
         allJobs = allJobs.concat(jobs);
         jobsPerPage.push(jobs.length);
         // Log only the first 3 job titles for this page
@@ -217,37 +293,37 @@ async function parsePuppeteer(url, keyword) {
           await new Promise(resolve => setTimeout(resolve, 1000));
           console.log(`[Puppeteer][Meta] Clicked page ${pageNum} link.`);
         }
-        await page.waitForSelector('a[href^="/jobs/"]', { timeout: 15000 }).catch(() => {
-          console.log('[Puppeteer] No Meta job links found after waiting.');
-        });
-        const debugMeta = await page.evaluate(() => {
-          const cards = Array.from(document.querySelectorAll('a[href^="/jobs/"]'));
-          return cards.map(card => card.innerText);
-        });
+      await page.waitForSelector('a[href^="/jobs/"]', { timeout: 15000 }).catch(() => {
+        console.log('[Puppeteer] No Meta job links found after waiting.');
+      });
+      const debugMeta = await page.evaluate(() => {
+        const cards = Array.from(document.querySelectorAll('a[href^="/jobs/"]'));
+        return cards.map(card => card.innerText);
+      });
         console.log(`[Puppeteer][DEBUG][Meta][Page ${pageNum}] job link innerText on page:`, debugMeta.slice(0, 3));
         let jobs = await page.evaluate(() => {
-          const cards = Array.from(document.querySelectorAll('a[href^="/jobs/"]'));
-          return cards.map(card => {
-            const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
-            const title = lines[0] || '';
-            // Try to find a line that looks like a location (e.g., "Bangalore, India")
-            let location = '';
-            for (let i = 1; i < lines.length; i++) {
-              if (/^[A-Za-z ]+, [A-Za-z ]+$/.test(lines[i])) {
-                location = lines[i];
-                break;
-              }
+        const cards = Array.from(document.querySelectorAll('a[href^="/jobs/"]'));
+        return cards.map(card => {
+          const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
+          const title = lines[0] || '';
+          // Try to find a line that looks like a location (e.g., "Bangalore, India")
+          let location = '';
+          for (let i = 1; i < lines.length; i++) {
+            if (/^[A-Za-z ]+, [A-Za-z ]+$/.test(lines[i])) {
+              location = lines[i];
+              break;
             }
-            const url = 'https://www.metacareers.com' + card.getAttribute('href');
-            return {
-              title,
-              location,
-              datePosted: '',
-              url
-            };
-          });
+          }
+          const url = 'https://www.metacareers.com' + card.getAttribute('href');
+          return {
+            title,
+            location,
+            datePosted: '',
+            url
+          };
         });
-        jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+      });
+      jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
         allJobs = allJobs.concat(jobs);
         jobsPerPage.push(jobs.length);
         // Log only the first 3 job titles for this page
@@ -263,44 +339,44 @@ async function parsePuppeteer(url, keyword) {
       let allJobs = [];
       let jobsPerPage = [];
       for (let pageNum = 1; pageNum <= 5; pageNum++) {
-        await page.waitForSelector('li.css-1q2dra3', { timeout: 15000 }).catch(() => {
-          console.log('[Puppeteer] No NVIDIA job cards found after waiting.');
-        });
+      await page.waitForSelector('li.css-1q2dra3', { timeout: 15000 }).catch(() => {
+        console.log('[Puppeteer] No NVIDIA job cards found after waiting.');
+      });
         let jobs = await page.evaluate(() => {
-          const cards = Array.from(document.querySelectorAll('li.css-1q2dra3'));
-          return cards.map(card => {
-            const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
-            let title = lines[0] || '';
-            let location = '';
-            let datePosted = '';
-            let url = '';
-            const titleElem = card.querySelector('a');
-            if (titleElem) url = titleElem.href || '';
-            for (let i = 0; i < lines.length; i++) {
-              if (lines[i].toLowerCase() === 'locations' && i + 1 < lines.length) {
-                location = lines[i + 1];
-              }
-              if (lines[i].toLowerCase() === 'posted on' && i + 1 < lines.length) {
-                datePosted = lines[i + 1];
-              }
+        const cards = Array.from(document.querySelectorAll('li.css-1q2dra3'));
+        return cards.map(card => {
+          const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
+          let title = lines[0] || '';
+          let location = '';
+          let datePosted = '';
+          let url = '';
+          const titleElem = card.querySelector('a');
+          if (titleElem) url = titleElem.href || '';
+          for (let i = 0; i < lines.length; i++) {
+            if (lines[i].toLowerCase() === 'locations' && i + 1 < lines.length) {
+              location = lines[i + 1];
             }
-            // Post-process datePosted
-            if (/Posted Today/i.test(datePosted)) {
-              const today = new Date();
-              datePosted = today.toISOString().slice(0, 10);
-            } else if (/\d{2}\/\d{2}\/\d{4}/.test(datePosted)) {
-              const m = datePosted.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-              if (m) datePosted = `${m[3]}-${m[1]}-${m[2]}`;
+            if (lines[i].toLowerCase() === 'posted on' && i + 1 < lines.length) {
+              datePosted = lines[i + 1];
             }
-            return {
-              title,
-              location,
-              datePosted,
-              url
-            };
-          });
+          }
+          // Post-process datePosted
+          if (/Posted Today/i.test(datePosted)) {
+            const today = new Date();
+            datePosted = today.toISOString().slice(0, 10);
+          } else if (/\d{2}\/\d{2}\/\d{4}/.test(datePosted)) {
+            const m = datePosted.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+            if (m) datePosted = `${m[3]}-${m[1]}-${m[2]}`;
+          }
+          return {
+            title,
+            location,
+            datePosted,
+            url
+          };
         });
-        jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+      });
+      jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
         allJobs = allJobs.concat(jobs);
         jobsPerPage.push(jobs.length);
         // Log only the first 3 job titles for this page
@@ -338,6 +414,10 @@ async function parsePuppeteer(url, keyword) {
       console.log(`[Puppeteer][NVIDIA] Total jobs extracted from first 5 pages: ${jobs.length}`);
       console.log(`[Puppeteer][NVIDIA] First 10 jobs:`, jobs.slice(0, 10));
     } else if (isAmazon) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      let allJobs = [];
+      let jobsPerPage = [];
+      for (let pageNum = 1; pageNum <= 5; pageNum++) {
       await page.waitForSelector('ul.jobs-module_root__gY8Hp > li', { timeout: 15000 }).catch(() => {
         console.log('[Puppeteer] No Amazon job cards found after waiting.');
       });
@@ -345,8 +425,8 @@ async function parsePuppeteer(url, keyword) {
         const cards = Array.from(document.querySelectorAll('ul.jobs-module_root__gY8Hp > li'));
         return cards.map(card => card.innerText);
       });
-      console.log(`[Puppeteer][DEBUG][Amazon] job card innerText on page:`, debugAmazon);
-      jobs = await page.evaluate((keywordLower) => {
+        console.log(`[Puppeteer][DEBUG][Amazon][Page ${pageNum}] Found ${debugAmazon.length} job cards. InnerText:`, debugAmazon);
+        let jobs = await page.evaluate((keywordLower) => {
         const cards = Array.from(document.querySelectorAll('ul.jobs-module_root__gY8Hp > li'));
         return cards.map(card => {
           const titleElem = card.querySelector('a');
@@ -356,22 +436,22 @@ async function parsePuppeteer(url, keyword) {
           let location = '';
           let datePosted = '';
           let description = '';
-          
-          // Extract location from the second line (after title)
-          if (lines.length > 1) {
-            const locationLine = lines[1];
-            // Check if this line looks like a location (contains city, state, country)
-            if (/^[A-Za-z\s]+, [A-Z]{2}, [A-Z]{3}$/.test(locationLine) || 
-                /^[A-Za-z\s]+, [A-Za-z\s]+$/.test(locationLine)) {
-              location = locationLine;
+            
+            // Extract location from the second line (after title)
+            if (lines.length > 1) {
+              const locationLine = lines[1];
+              // Check if this line looks like a location (contains city, state, country)
+              if (/^[A-Za-z\s]+, [A-Z]{2}, [A-Z]{3}$/.test(locationLine) || 
+                  /^[A-Za-z\s]+, [A-Za-z\s]+$/.test(locationLine)) {
+                location = locationLine;
+              }
             }
-          }
-          
-          // Extract date posted
+            
+            // Extract date posted
           for (let line of lines) {
             if (/Updated|\d{1,2}\/\d{1,2}\/\d{4}/i.test(line)) datePosted = line;
           }
-          
+            
           // Description: the first line after the title and location/date
           if (lines.length > 3) description = lines[3];
           return {
@@ -386,7 +466,49 @@ async function parsePuppeteer(url, keyword) {
           };
         }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
       }, keywordLower);
+        
+        jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        allJobs = allJobs.concat(jobs);
+        jobsPerPage.push(jobs.length);
+        // Log all job titles for this page
+        console.log(`[Puppeteer][Amazon][Page ${pageNum}] Found ${jobs.length} jobs:`);
+        jobs.forEach((job, index) => {
+          console.log(`  ${index + 1}. ${job.title} - ${job.location} - ${job.datePosted}`);
+        });
+        
+        // Click the next page button if not on the last page
+        if (pageNum < 5) {
+          const nextBtnSelector = 'button[data-test-id="next-page"]';
+          await page.waitForSelector(nextBtnSelector, { timeout: 10000 });
+          const nextBtn = await page.$(nextBtnSelector);
+          if (nextBtn) {
+            await nextBtn.evaluate(b => b.scrollIntoView());
+            const isDisabled = await (await nextBtn.getProperty('disabled')).jsonValue().catch(() => false);
+            if (!isDisabled) {
+              await nextBtn.click();
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              console.log(`[Puppeteer][Amazon] Clicked Next button for page ${pageNum + 1}.`);
+            } else {
+              console.log(`[Puppeteer][Amazon] Next button is disabled on page ${pageNum}.`);
+              break;
+            }
+          } else {
+            console.log(`[Puppeteer][Amazon] Could not find Next button on page ${pageNum}.`);
+            break;
+          }
+        }
+      }
+      jobs = allJobs;
+      // Log summary
+      console.log(`[Puppeteer][Amazon] Pagination summary: jobs per page:`, jobsPerPage);
+      console.log(`[Puppeteer][Amazon] Total jobs extracted from first 5 pages: ${jobs.length}`);
+      console.log(`[Puppeteer][Amazon] First 10 jobs:`, jobs.slice(0, 10));
     } else if (isAccenture) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      let allJobs = [];
+      let jobsPerPage = [];
+      let previousJobTitles = [];
+      for (let pageNum = 1; pageNum <= 5; pageNum++) {
       await page.waitForSelector('div.rad-filters-vertical__job-card', { timeout: 15000 }).catch(() => {
         console.log('[Puppeteer] No Accenture job cards found after waiting.');
       });
@@ -394,8 +516,8 @@ async function parsePuppeteer(url, keyword) {
         const cards = Array.from(document.querySelectorAll('div.rad-filters-vertical__job-card'));
         return cards.map(card => card.innerText);
       });
-      console.log(`[Puppeteer][DEBUG][Accenture] job card innerText on page:`, debugAccenture);
-      jobs = await page.evaluate((keywordLower) => {
+        console.log(`[Puppeteer][DEBUG][Accenture][Page ${pageNum}] job card innerText on page:`, debugAccenture);
+        let jobs = await page.evaluate((keywordLower) => {
         const cards = Array.from(document.querySelectorAll('div.rad-filters-vertical__job-card'));
         return cards.map(card => {
           // Title: first line
@@ -421,18 +543,18 @@ async function parsePuppeteer(url, keyword) {
             if (/Experience:/i.test(line)) experience = line.replace('Experience:', '').trim();
             if (/Required Skill:/i.test(line)) requiredSkill = line.replace('Required Skill:', '').trim();
           }
-          
-          // Extract job URL from the card
-          let url = '';
-          const link = card.querySelector('a');
-          if (link) {
-            url = link.href || '';
-            // Ensure the URL is absolute
-            if (url && !url.startsWith('http')) {
-              url = 'https://www.accenture.com' + url;
+            
+            // Extract job URL from the card
+            let url = '';
+            const link = card.querySelector('a');
+            if (link) {
+              url = link.href || '';
+              // Ensure the URL is absolute
+              if (url && !url.startsWith('http')) {
+                url = 'https://www.accenture.com' + url;
+              }
             }
-          }
-          
+            
           return {
             title,
             url,
@@ -444,18 +566,151 @@ async function parsePuppeteer(url, keyword) {
             skills: []
           };
         }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
-      }, keywordLower);
+        }, keywordLower);
+        
+        jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        // Duplicate detection: break if job titles are the same as previous page
+        const currentJobTitles = jobs.map(j => j.title).join('|');
+        if (previousJobTitles.length > 0 && currentJobTitles === previousJobTitles.join('|')) {
+          console.log(`[Puppeteer][Accenture][Page ${pageNum}] Detected duplicate job titles, stopping pagination.`);
+          break;
+        }
+        previousJobTitles = jobs.map(j => j.title);
+        allJobs = allJobs.concat(jobs);
+        jobsPerPage.push(jobs.length);
+        // Log all job titles for this page
+        console.log(`[Puppeteer][Accenture][Page ${pageNum}] Found ${jobs.length} jobs:`);
+        jobs.forEach((job, index) => {
+          console.log(`  ${index + 1}. ${job.title} - ${job.location} - ${job.experience}`);
+        });
+        
+        // Click the next page button if not on the last page
+        if (pageNum < 5) {
+          const nextBtnSelector = 'button[aria-label="Next"]';
+          
+          // Debug: Check pagination controls
+          const paginationDebug = await page.evaluate(() => {
+            const buttons = Array.from(document.querySelectorAll('button'));
+            return buttons.map(btn => ({
+              text: btn.innerText,
+              ariaLabel: btn.getAttribute('aria-label'),
+              disabled: btn.disabled,
+              className: btn.className
+            }));
+          });
+          console.log(`[Puppeteer][DEBUG][Accenture][Page ${pageNum}] All buttons:`, paginationDebug);
+          
+          await page.waitForSelector(nextBtnSelector, { timeout: 10000 });
+          const nextBtn = await page.$(nextBtnSelector);
+          if (nextBtn) {
+            await nextBtn.evaluate(b => b.scrollIntoView());
+            const isDisabled = await (await nextBtn.getProperty('disabled')).jsonValue().catch(() => false);
+            console.log(`[Puppeteer][DEBUG][Accenture][Page ${pageNum}] Next button disabled:`, isDisabled);
+            if (!isDisabled) {
+              await nextBtn.click();
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              console.log(`[Puppeteer][Accenture] Clicked Next button for page ${pageNum + 1}.`);
+            } else {
+              console.log(`[Puppeteer][Accenture] Next button is disabled on page ${pageNum}.`);
+              break;
+            }
+          } else {
+            console.log(`[Puppeteer][Accenture] Could not find Next button on page ${pageNum}.`);
+            break;
+          }
+        }
+      }
+      jobs = allJobs;
+      // Log summary
+      console.log(`[Puppeteer][Accenture] Pagination summary: jobs per page:`, jobsPerPage);
+      console.log(`[Puppeteer][Accenture] Total jobs extracted from first 5 pages: ${jobs.length}`);
+      console.log(`[Puppeteer][Accenture] First 10 jobs:`, jobs.slice(0, 10));
     } else if (isCapgemini) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      let allJobs = [];
+      let jobsPerPage = [];
+      let previousJobCount = 0;
+      
+      for (let pageNum = 1; pageNum <= 5; pageNum++) {
       await page.waitForSelector('a.table-tr.filter-box.tag-active.joblink', { timeout: 15000 }).catch(() => {
         console.log('[Puppeteer] No Capgemini job cards found after waiting.');
       });
-      const debugCapgemini = await page.evaluate(() => {
+        
+        // For page 1, extract initial jobs
+        if (pageNum === 1) {
+          let currentJobs = await page.evaluate((keywordLower) => {
         const cards = Array.from(document.querySelectorAll('a.table-tr.filter-box.tag-active.joblink'));
-        return cards.map(card => card.innerText);
-      });
-      console.log(`[Puppeteer][DEBUG][Capgemini] job card innerText on page:`, debugCapgemini);
-      jobs = await page.evaluate((keywordLower) => {
+            console.log(`[Puppeteer][DEBUG][Capgemini] Found ${cards.length} job cards in DOM`);
+            return cards.map(card => {
+              const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
+              const title = lines[0] || '';
+              const location = lines[2] || '';
+              const experience = (title.match(/\|\s*([\d\-]+\s*years)/i) ? title.match(/\|\s*([\d\-]+\s*years)/i)[1] : '');
+              const jobType = lines[3] || '';
+              const url = card.href.startsWith('http') ? card.href : ('https://www.capgemini.com' + card.getAttribute('href'));
+              return {
+                title,
+                url,
+                location,
+                function: jobType,
+                experience,
+                datePosted: '',
+                skills: []
+              };
+            }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+          }, keywordLower);
+          
+          allJobs = allJobs.concat(currentJobs);
+          jobsPerPage.push(currentJobs.length);
+          previousJobCount = currentJobs.length;
+          
+          console.log(`[Puppeteer][Capgemini][Page ${pageNum}] Found ${currentJobs.length} initial jobs:`);
+          currentJobs.forEach((job, index) => {
+            console.log(`  ${index + 1}. ${job.title} - ${job.location} - ${job.experience}`);
+          });
+        }
+        
+        // Click "Load More" button if not on the last page
+        if (pageNum < 5) {
+          const loadMoreSelector = 'a[aria-label="Load More about jobs"]';
+          try {
+            await page.waitForSelector(loadMoreSelector, { timeout: 10000 });
+            const loadMoreBtn = await page.$(loadMoreSelector);
+            if (loadMoreBtn) {
+              await loadMoreBtn.evaluate(b => b.scrollIntoView());
+              await loadMoreBtn.click();
+              console.log(`[Puppeteer][Capgemini] Clicked Load More button for page ${pageNum + 1}.`);
+              
+              // Wait for new jobs to load with longer timeout
+              await new Promise(resolve => setTimeout(resolve, 5000));
+              
+              // Wait for job count to increase with retry mechanism
+              let attempts = 0;
+              let newJobCount = previousJobCount;
+              while (attempts < 15) {
+                newJobCount = await page.evaluate(() => {
+                  return document.querySelectorAll('a.table-tr.filter-box.tag-active.joblink').length;
+                });
+                console.log(`[Puppeteer][DEBUG][Capgemini] Attempt ${attempts + 1}: job count = ${newJobCount} (previous = ${previousJobCount})`);
+                if (newJobCount > previousJobCount) {
+                  console.log(`[Puppeteer][Capgemini] New jobs loaded: ${previousJobCount} -> ${newJobCount}`);
+                  // Wait a bit more for DOM to fully update
+                  await new Promise(resolve => setTimeout(resolve, 2000));
+                  break;
+                }
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                attempts++;
+              }
+              
+              if (newJobCount <= previousJobCount) {
+                console.log(`[Puppeteer][Capgemini] Warning: Job count did not increase after Load More. Expected > ${previousJobCount}, got ${newJobCount}`);
+              }
+              
+              // Extract new jobs after Load More (for pages 2-5)
+              if (pageNum >= 2) {
+                let currentJobs = await page.evaluate((keywordLower) => {
         const cards = Array.from(document.querySelectorAll('a.table-tr.filter-box.tag-active.joblink'));
+                  console.log(`[Puppeteer][DEBUG][Capgemini] Found ${cards.length} job cards in DOM after Load More`);
         return cards.map(card => {
           const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
           const title = lines[0] || '';
@@ -474,32 +729,104 @@ async function parsePuppeteer(url, keyword) {
           };
         }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
       }, keywordLower);
+                
+                // Get only new jobs (jobs that weren't there before)
+                let newJobs = currentJobs.slice(previousJobCount);
+                
+                console.log(`[Puppeteer][DEBUG][Capgemini][Page ${pageNum}] Job counting: previous=${previousJobCount}, current=${currentJobs.length}, new=${newJobs.length}`);
+                
+                previousJobCount = currentJobs.length;
+                allJobs = allJobs.concat(newJobs);
+                jobsPerPage.push(newJobs.length);
+                
+                console.log(`[Puppeteer][Capgemini][Page ${pageNum}] Found ${newJobs.length} new jobs:`);
+                newJobs.forEach((job, index) => {
+                  console.log(`  ${index + 1}. ${job.title} - ${job.location} - ${job.experience}`);
+                });
+              }
+            } else {
+              console.log(`[Puppeteer][Capgemini] Could not find Load More button on page ${pageNum}.`);
+              break;
+            }
+          } catch (error) {
+            console.log(`[Puppeteer][Capgemini] Error with Load More: ${error.message}`);
+            console.log(`[Puppeteer][Capgemini] Stopping pagination due to Load More issues.`);
+            break;
+          }
+        }
+      }
+      jobs = allJobs;
+      // Log summary
+      console.log(`[Puppeteer][Capgemini] Pagination summary: jobs per page:`, jobsPerPage);
+      console.log(`[Puppeteer][Capgemini] Total jobs extracted from first 5 pages: ${jobs.length}`);
+      console.log(`[Puppeteer][Capgemini] First 10 jobs:`, jobs.slice(0, 10));
     } else if (isIbm) {
-      // Wait extra for jobs to load (cross-version compatible)
       await new Promise(resolve => setTimeout(resolve, 5000));
-      await page.waitForSelector('div.bx--card_wrapper', { timeout: 15000 }).catch(() => {
+      let allJobs = [];
+      let jobsPerPage = [];
+      for (let pageNum = 1; pageNum <= 5; pageNum++) {
+        // Wait for any job-related content to load
+        await page.waitForSelector('[data-auto-id="dds--card-group"], div.bx--card-group__car_ds_col, div[role="region"], .job-card, .career-card', { timeout: 15000 }).catch(() => {
         console.log('[Puppeteer] No IBM job cards found after waiting.');
       });
-      const debugIbmWrappers = await page.evaluate(() => {
-        const cards = Array.from(document.querySelectorAll('div.bx--card_wrapper'));
-        return cards.map(card => card.innerText);
-      });
-      console.log(`[Puppeteer][DEBUG][IBM] Found ${debugIbmWrappers.length} card wrappers. InnerText:`, debugIbmWrappers);
-      jobs = await page.evaluate((keywordLower) => {
-        const cards = Array.from(document.querySelectorAll('div.bx--card_wrapper'));
+        
+        // Debug: Check what elements are actually on the page
+        const debugPageStructure = await page.evaluate(() => {
+          const allDivs = Array.from(document.querySelectorAll('div'));
+          const cardLikeDivs = allDivs.filter(div => 
+            div.className && (
+              div.className.includes('card') || 
+              div.className.includes('job') || 
+              div.className.includes('career') ||
+              div.getAttribute('role') === 'region'
+            )
+          );
+          return {
+            totalDivs: allDivs.length,
+            cardLikeDivs: cardLikeDivs.map(div => ({
+              className: div.className,
+              role: div.getAttribute('role'),
+              ariaLabel: div.getAttribute('aria-label'),
+              innerText: div.innerText.substring(0, 100)
+            }))
+          };
+        });
+        console.log(`[Puppeteer][DEBUG][IBM][Page ${pageNum}] Page structure:`, debugPageStructure);
+        
+        const debugIbmCards = await page.evaluate(() => {
+          const cards = Array.from(document.querySelectorAll('div.bx--card-group__car_ds_col, [data-auto-id="dds--card-group"] div, div[role="region"]'));
+          return cards.map(card => ({
+            innerText: card.innerText,
+            ariaLabel: card.getAttribute('aria-label'),
+            hasLink: !!card.querySelector('a'),
+            className: card.className
+          }));
+        });
+        console.log(`[Puppeteer][DEBUG][IBM][Page ${pageNum}] Found ${debugIbmCards.length} job cards. Details:`, debugIbmCards);
+        let jobs = await page.evaluate((keywordLower) => {
+          const cards = Array.from(document.querySelectorAll('div.bx--card-group__car_ds_col, [data-auto-id="dds--card-group"] div, div[role="region"]'));
         return cards.map(card => {
           const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
           const category = lines[0] || '';
           const title = lines[1] || '';
           const level = lines[2] || '';
           const location = lines[3] || '';
-          // Try to find a job link in parent or ancestor a
+            
+            // Try to find a job link
           let url = '';
-          let parent = card.parentElement;
-          while (parent && parent.tagName !== 'A') parent = parent.parentElement;
-          if (parent && parent.tagName === 'A') {
-            url = parent.href.startsWith('http') ? parent.href : ('https://www.ibm.com' + parent.getAttribute('href'));
-          }
+            const link = card.querySelector('a');
+            if (link) {
+              url = link.href || '';
+              if (!url.startsWith('http')) {
+                url = 'https://www.ibm.com' + url;
+              }
+            }
+            
+            // Only return jobs that have meaningful content
+            if (!title || title.length < 5) {
+              return null;
+            }
+            
           return {
             title,
             url,
@@ -509,178 +836,429 @@ async function parsePuppeteer(url, keyword) {
             datePosted: '',
             skills: []
           };
-        }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+          }).filter(job => job && (keywordLower === '' || (job.title && job.title.toLowerCase().includes(keywordLower))));
       }, keywordLower);
-      console.log(`[Puppeteer][DEBUG][IBM] Extracted jobs:`, jobs);
+        
+        jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        allJobs = allJobs.concat(jobs);
+        jobsPerPage.push(jobs.length);
+        // Log all job titles for this page
+        console.log(`[Puppeteer][IBM][Page ${pageNum}] Found ${jobs.length} jobs:`);
+        jobs.forEach((job, index) => {
+          console.log(`  ${index + 1}. ${job.title} - ${job.location} - ${job.experience}`);
+        });
+        
+        // Click the next page button if not on the last page
+        if (pageNum < 5) {
+          const nextBtnSelector = 'button[aria-label="Next page"], button[aria-label="Next"], a[aria-label="Next page"], a[aria-label="Next"]';
+          try {
+            await page.waitForSelector(nextBtnSelector, { timeout: 10000 });
+            const nextBtn = await page.$(nextBtnSelector);
+            if (nextBtn) {
+              await nextBtn.evaluate(b => b.scrollIntoView());
+              const isDisabled = await (await nextBtn.getProperty('disabled')).jsonValue().catch(() => false);
+              if (!isDisabled) {
+                await nextBtn.click();
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                console.log(`[Puppeteer][IBM] Clicked Next button for page ${pageNum + 1}.`);
+              } else {
+                console.log(`[Puppeteer][IBM] Next button is disabled on page ${pageNum}.`);
+                break;
+              }
+            } else {
+              console.log(`[Puppeteer][IBM] Could not find Next button on page ${pageNum}.`);
+              break;
+            }
+          } catch (error) {
+            console.log(`[Puppeteer][IBM] Error with pagination: ${error.message}`);
+            console.log(`[Puppeteer][IBM] Stopping pagination due to pagination issues.`);
+            break;
+          }
+        }
+      }
+      jobs = allJobs;
+      // Log summary
+      console.log(`[Puppeteer][IBM] Pagination summary: jobs per page:`, jobsPerPage);
+      console.log(`[Puppeteer][IBM] Total jobs extracted from first 5 pages: ${jobs.length}`);
+      console.log(`[Puppeteer][IBM] First 10 jobs:`, jobs.slice(0, 10));
     } else if (isOracle) {
       await new Promise(resolve => setTimeout(resolve, 5000));
       await page.waitForSelector("li[data-qa='searchResultItem']", { timeout: 15000 }).catch(() => {
         console.log('[Puppeteer] No Oracle job cards found after waiting.');
       });
+      
+      // Debug: Check what's actually on the page
       const debugOracle = await page.evaluate(() => {
         const cards = Array.from(document.querySelectorAll("li[data-qa='searchResultItem']"));
-        return cards.map(card => card.innerText);
+        return cards.map(card => ({
+          innerText: card.innerText,
+          hasLink: !!card.querySelector('a'),
+          linkHref: card.querySelector('a')?.href || '',
+          className: card.className
+        }));
       });
-      console.log(`[Puppeteer][DEBUG][Oracle] Found ${debugOracle.length} job cards. InnerText:`, debugOracle);
-      jobs = await page.evaluate(() => {
+      console.log(`[Puppeteer][DEBUG][Oracle] Found ${debugOracle.length} job cards. Details:`, debugOracle);
+      
+      jobs = await page.evaluate((keywordLower) => {
         const cards = Array.from(document.querySelectorAll("li[data-qa='searchResultItem']"));
+        console.log(`[Puppeteer][DEBUG][Oracle] Processing ${cards.length} job cards`);
+        
         return cards.map(card => {
           const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
           let title = lines[0] || '';
           let location = '';
+          let description = '';
           let datePosted = '';
           let url = '';
+          
+          // Extract URL from the job card
           const link = card.querySelector('a');
-          if (link) url = link.href || '';
-          // Find location and datePosted by looking for lines with a location pattern and a date pattern
-          for (let i = 1; i < lines.length; i++) {
-            if (!location && /[A-Za-z]+,? [A-Za-z]+,?/.test(lines[i])) location = lines[i];
-            if (!datePosted && /\d{2}\/\d{2}\/\d{4}/.test(lines[i])) datePosted = lines[i].match(/\d{2}\/\d{2}\/\d{4}/)[0];
+          if (link) {
+            url = link.href || '';
+            if (!url.startsWith('http')) {
+              url = 'https://careers.oracle.com' + url;
+            }
           }
-          // If datePosted is still empty, look for a line with 'Posted' and a date
-          if (!datePosted) {
+          
+          // Extract location (usually appears after title)
             for (let i = 1; i < lines.length; i++) {
-              if (/Posted/.test(lines[i]) && /\d{2}\/\d{2}\/\d{4}/.test(lines[i])) {
-                datePosted = lines[i].match(/\d{2}\/\d{2}\/\d{4}/)[0];
+            const line = lines[i];
+            // Look for location patterns like "India and 1 more" or "India" or city names
+            if (!location && (
+              line.includes('India') || 
+              line.includes('BENGALURU') || 
+              line.includes('HYDERABAD') || 
+              line.includes('PUNE') || 
+              line.includes('GURUGRAM') ||
+              /^[A-Za-z\s]+(?: and \d+ more)?$/.test(line) ||
+              /^[A-Z\s]+, [A-Z\s]+, India$/.test(line)
+            )) {
+              location = line;
+              continue;
+            }
+            // Look for description (longer text after location, skip TRENDING and other short tags)
+            if (!description && line.length > 30 && !line.includes('TRENDING') && !line.includes('BE THE FIRST TO APPLY') && !line.includes('Posted')) {
+              description = line;
                 break;
               }
             }
+          
+          // Look for date patterns in the entire card text
+          const cardText = card.innerText;
+          const datePatterns = [
+            /\d{2}\/\d{2}\/\d{4}/,
+            /\d{4}-\d{2}-\d{2}/,
+            /\d{1,2}\s+\w{3,9}\s+\d{4}/
+          ];
+          
+          for (const pattern of datePatterns) {
+            const match = cardText.match(pattern);
+            if (match) {
+              datePosted = match[0];
+              break;
+            }
           }
-          // Convert MM/DD/YYYY to YYYY-MM-DD
+          
+          // Convert MM/DD/YYYY to YYYY-MM-DD if needed
           if (/\d{2}\/\d{2}\/\d{4}/.test(datePosted)) {
             const m = datePosted.match(/(\d{2})\/(\d{2})\/(\d{4})/);
             if (m) datePosted = `${m[3]}-${m[1]}-${m[2]}`;
           }
-          return {
+          
+          const job = {
             title,
             location,
+            description,
             datePosted,
-            url
+            url,
+            function: '',
+            experience: '',
+            skills: []
           };
-        });
-      });
-      // Now filter by keyword after extraction
+          
+          console.log(`[Puppeteer][DEBUG][Oracle] Extracted job: ${title} - ${location}`);
+          return job;
+        }).filter(job => job.title && job.title.length > 5); // Filter out empty or invalid jobs
+      }, keywordLower);
+      
+      // Filter by keyword after extraction
       jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
-      console.log(`[Puppeteer][DEBUG][Oracle] Extracted jobs:`, jobs);
+      
+      console.log(`[Puppeteer][Oracle] Extracted ${jobs.length} jobs from page 1:`);
+      jobs.forEach((job, index) => {
+        console.log(`  ${index + 1}. ${job.title} - ${job.location} - ${job.description?.substring(0, 50)}...`);
+      });
     } else if (isSap) {
       await new Promise(resolve => setTimeout(resolve, 5000));
+      let allJobs = [];
+      let jobsPerPage = [];
+      
+      for (let pageNum = 1; pageNum <= 5; pageNum++) {
+        console.log(`[Puppeteer][SAP] Processing page ${pageNum}...`);
+        
+        // Wait for job cards to load
       await page.waitForSelector('tr.data-row', { timeout: 15000 }).catch(() => {
         console.log('[Puppeteer] No SAP job cards found after waiting.');
       });
-      // Get all job cards first
-      const jobCards = await page.evaluate(() => {
+        
+        // Get all job cards on current page
+        const jobCards = await page.evaluate(() => {
         const cards = Array.from(document.querySelectorAll('tr.data-row'));
-        return cards.map((card, index) => {
-          const titleLink = card.querySelector('a');
-          const title = titleLink ? titleLink.innerText.trim() : (card.innerText.split('\n')[0] || '');
-          const location = card.innerText.split('\n')[1] || '';
+          return cards.map((card, index) => {
+            const titleLink = card.querySelector('a');
+            const title = titleLink ? titleLink.innerText.trim() : (card.innerText.split('\n')[0] || '');
+            const location = card.innerText.split('\n')[1] || '';
           return {
-            index,
+              index,
             title,
             location,
-            hasLink: !!titleLink
-          };
+              hasLink: !!titleLink,
+              linkHref: titleLink ? titleLink.href : ''
+            };
+          });
         });
-      });
-      
-      console.log(`[Puppeteer][DEBUG][SAP] Found ${jobCards.length} job cards.`);
-      
-      jobs = [];
-      for (let i = 0; i < Math.min(jobCards.length, 10); i++) { // Limit to first 10 jobs for performance
-        const jobCard = jobCards[i];
-        if (keywordLower !== '' && !jobCard.title.toLowerCase().includes(keywordLower)) {
-          continue;
-        }
-        try {
-          console.log(`[Puppeteer][SAP] Processing job ${i + 1}/${Math.min(jobCards.length, 10)}: ${jobCard.title}`);
-          await page.waitForSelector('tr.data-row', { timeout: 10000 });
-          const cards = await page.$$('tr.data-row');
-          const titleLink = await cards[i].$('a');
-          if (titleLink) {
-            // Open link in the same tab
-            await Promise.all([
-              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }),
-              titleLink.click()
-            ]);
-            // Extract canonical URL and date posted
-            const jobDetails = await page.evaluate(() => {
-              // Canonical URL
-              let url = '';
-              const canonical = document.querySelector('link[rel="canonical"]');
-              if (canonical && canonical.href) url = canonical.href;
-              // Try to find date posted
-              let datePosted = '';
-              const dateSelectors = [
-                '[class*="date"]', '[class*="posted"]', '[class*="time"]', '[class*="created"]', '[class*="publish"]',
-                'span[class*="date"]', 'div[class*="date"]', 'p[class*="date"]', 'span', 'div', 'p'
-              ];
-              const datePatterns = [
-                /\bToday\b/i, /\d+\s+day[s]?\s+ago/i, /\d{1,2}\s+\w{3,9}\s+\d{4}/i, /\d{1,2}\/\d{1,2}\/\d{4}/i, /\d{4}-\d{2}-\d{2}/i,
-                /\bPosted\b.*\d{1,2}\/\d{1,2}\/\d{4}/i, /\bPosted\b.*\d{4}-\d{2}-\d{2}/i, /\bCreated\b.*\d{1,2}\/\d{1,2}\/\d{4}/i,
-                /\bCreated\b.*\d{4}-\d{2}-\d{2}/i, /\bPublished\b.*\d{1,2}\/\d{1,2}\/\d{4}/i, /\bPublished\b.*\d{4}-\d{2}-\d{2}/i
-              ];
-              for (const selector of dateSelectors) {
-                const elements = document.querySelectorAll(selector);
-                for (const element of elements) {
-                  const text = element.innerText.trim();
-                  for (const pattern of datePatterns) {
-                    if (pattern.test(text)) {
-                      datePosted = text;
+        
+        console.log(`[Puppeteer][SAP][Page ${pageNum}] Found ${jobCards.length} job cards.`);
+        
+        let pageJobs = [];
+        // Process each job on the current page
+        for (let i = 0; i < jobCards.length; i++) {
+          const jobCard = jobCards[i];
+          if (keywordLower !== '' && !jobCard.title.toLowerCase().includes(keywordLower)) {
+            continue;
+          }
+          
+          try {
+            console.log(`[Puppeteer][SAP][Page ${pageNum}] Processing job ${i + 1}/${jobCards.length}: ${jobCard.title}`);
+            
+            // Wait for job cards to be available again after navigation
+            await page.waitForSelector('tr.data-row', { timeout: 10000 });
+            const cards = await page.$$('tr.data-row');
+            const titleLink = await cards[i].$('a');
+            
+                          if (titleLink) {
+                try {
+                  // Get the href before clicking
+                  const jobUrl = await titleLink.evaluate(link => link.href);
+                  console.log(`[Puppeteer][SAP][Page ${pageNum}] Job URL: ${jobUrl}`);
+                  
+                  // Use goto instead of click
+                  await page.goto(jobUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+                  await new Promise(resolve => setTimeout(resolve, 3000)); // extra wait for slow pages
+
+                  // Extract canonical URL, date posted, and skills
+                  const jobDetails = await page.evaluate(() => {
+                    let url = '';
+                    const canonical = document.querySelector('link[rel="canonical"]');
+                    url = canonical?.href || window.location.href;
+                    
+                    // Try to find date posted - SAP specific selectors
+                    let datePosted = '';
+                    const sapDateSelectors = [
+                      '[data-qa="job-posted-date"]',
+                      '[class*="posted"]',
+                      '[class*="date"]',
+                      'span[class*="date"]',
+                      'div[class*="date"]',
+                      'p[class*="date"]',
+                      '.job-posted-date',
+                      '.posted-date',
+                      'span',
+                      'div',
+                      'p'
+                    ];
+                    
+                    const datePatterns = [
+                      /\bPosted\b.*\d{1,2}\/\d{1,2}\/\d{4}/i,
+                      /\bPosted\b.*\d{4}-\d{2}-\d{2}/i,
+                      /\bCreated\b.*\d{1,2}\/\d{1,2}\/\d{4}/i,
+                      /\bCreated\b.*\d{4}-\d{2}-\d{2}/i,
+                      /\bPublished\b.*\d{1,2}\/\d{1,2}\/\d{4}/i,
+                      /\bPublished\b.*\d{4}-\d{2}-\d{2}/i,
+                      /\d{1,2}\/\d{1,2}\/\d{4}/,
+                      /\d{4}-\d{2}-\d{2}/,
+                      /\d{1,2}\s+\w{3,9}\s+\d{4}/i
+                    ];
+                    
+                    // Try SAP-specific date extraction first
+                    for (const selector of sapDateSelectors) {
+                      const elements = document.querySelectorAll(selector);
+                      for (const element of elements) {
+                        const text = element.innerText.trim();
+                        for (const pattern of datePatterns) {
+                          if (pattern.test(text)) {
+                            datePosted = text;
+                            break;
+                          }
+                        }
+                        if (datePosted) break;
+                      }
+                      if (datePosted) break;
+                    }
+                    
+                    // Extract skills from the job description
+                    let skills = [];
+                    const skillSelectors = [
+                      '[data-qa="job-description"]',
+                      '.job-description',
+                      '[class*="description"]',
+                      'div[class*="content"]',
+                      'p',
+                      'div'
+                    ];
+                    
+                    for (const selector of skillSelectors) {
+                      const elements = document.querySelectorAll(selector);
+                      for (const element of elements) {
+                        const text = element.innerText.toLowerCase();
+                        // Look for common skill keywords
+                        const skillKeywords = [
+                          'java', 'python', 'javascript', 'react', 'angular', 'node.js', 'sql', 'oracle', 'sap',
+                          'cloud', 'aws', 'azure', 'docker', 'kubernetes', 'agile', 'scrum', 'devops',
+                          'machine learning', 'ai', 'data science', 'analytics', 'business intelligence',
+                          'salesforce', 'microsoft', 'aws', 'gcp', 'microservices', 'api', 'rest'
+                        ];
+                        
+                        for (const keyword of skillKeywords) {
+                          if (text.includes(keyword)) {
+                            skills.push(keyword);
+                          }
+                        }
+                      }
+                      if (skills.length > 0) break;
+                    }
+                    
+                    // Remove duplicates and limit to top 10 skills
+                    skills = [...new Set(skills)].slice(0, 10);
+                    
+                    return { url, datePosted, skills };
+                  });
+
+                pageJobs.push({
+                  title: jobCard.title,
+                  location: jobCard.location,
+                  url: jobDetails.url,
+                  datePosted: jobDetails.datePosted,
+            function: '',
+            experience: '',
+                  skills: jobDetails.skills || []
+                });
+
+                                  // Better return navigation - go back to the original listing URL
+                  const originalUrl = url; // Use the original URL passed to the function
+                  await page.goto(originalUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+                  await new Promise(resolve => setTimeout(resolve, 5000)); // Wait longer for page to load
+                  
+                  // Wait for job cards to be available again with retry mechanism
+                  let retries = 0;
+                  while (retries < 5) {
+                    try {
+                      await page.waitForSelector('tr.data-row', { timeout: 10000 });
+                      console.log(`[Puppeteer][SAP][Page ${pageNum}] Successfully returned to listing page after ${retries + 1} attempts`);
                       break;
+                    } catch (waitError) {
+                      retries++;
+                      console.log(`[Puppeteer][SAP][Page ${pageNum}] Retry ${retries}/5: Job cards not found, waiting...`);
+                      await new Promise(resolve => setTimeout(resolve, 2000));
+                      if (retries >= 5) {
+                        console.log(`[Puppeteer][SAP][Page ${pageNum}] Failed to return to listing page after ${retries} attempts`);
+                        break;
+                      }
                     }
                   }
-                  if (datePosted) break;
-                }
-                if (datePosted) break;
+              } catch (navigationError) {
+                console.log(`[Puppeteer][SAP][Page ${pageNum}] Navigation timeout for job ${i + 1}, using fallback data.`);
+                pageJobs.push({
+                  title: jobCard.title,
+                  location: jobCard.location,
+                  url: jobCard.linkHref || '',
+            datePosted: '',
+                  function: '',
+                  experience: '',
+            skills: []
+                });
               }
-              if (!datePosted) {
-                const allText = document.body.innerText;
-                const dateMatch = allText.match(/\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s+\w{3,9}\s+\d{4}/);
-                if (dateMatch) datePosted = dateMatch[0];
-              }
-              return { url, datePosted };
-            });
-            jobs.push({
+            } else {
+              // No link found, fallback
+              pageJobs.push({
+                title: jobCard.title,
+                location: jobCard.location,
+                url: jobCard.linkHref || '',
+                datePosted: '',
+                function: '',
+                experience: '',
+                skills: []
+              });
+            }
+          } catch (error) {
+            console.log(`[Puppeteer][SAP][Page ${pageNum}] Error processing job ${i + 1}: ${error.message}`);
+            pageJobs.push({
               title: jobCard.title,
               location: jobCard.location,
-              url: jobDetails.url,
-              datePosted: jobDetails.datePosted,
-              function: '',
-              experience: '',
-              skills: []
-            });
-            // Go back to the job listing page
-            await page.goBack({ waitUntil: 'networkidle2' });
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          } else {
-            // No link found, fallback
-            jobs.push({
-              title: jobCard.title,
-              location: jobCard.location,
-              url: '',
+              url: jobCard.linkHref || '',
               datePosted: '',
               function: '',
               experience: '',
               skills: []
             });
           }
-        } catch (error) {
-          console.log(`[Puppeteer][SAP] Error processing job ${i + 1}: ${error.message}`);
-          jobs.push({
-            title: jobCard.title,
-            location: jobCard.location,
-            url: '',
-            datePosted: '',
-            function: '',
-            experience: '',
-            skills: []
-          });
+        }
+        
+        // Filter jobs by keyword
+        pageJobs = pageJobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        allJobs = allJobs.concat(pageJobs);
+        jobsPerPage.push(pageJobs.length);
+        
+        console.log(`[Puppeteer][SAP][Page ${pageNum}] Extracted ${pageJobs.length} jobs:`);
+        pageJobs.forEach((job, index) => {
+          console.log(`  ${index + 1}. ${job.title} - ${job.location} - ${job.datePosted}`);
+        });
+        
+        // Navigate to next page if not on the last page
+        if (pageNum < 5) {
+          try {
+            // Look for pagination controls - try different selectors based on the screenshot
+            const paginationSelectors = [
+              'a[title="Next Page"]',
+              'a[title="Last Page"]',
+              'a.paginationItemLast',
+              'a[href*="page="]',
+              'a[href*="150"]', // Based on the URL pattern in screenshot
+              'ul.pagination a:last-child'
+            ];
+            
+            let nextPageLink = null;
+            for (const selector of paginationSelectors) {
+              nextPageLink = await page.$(selector);
+              if (nextPageLink) {
+                console.log(`[Puppeteer][SAP] Found pagination link with selector: ${selector}`);
+                break;
+              }
+            }
+            
+            if (nextPageLink) {
+              await nextPageLink.evaluate(b => b.scrollIntoView());
+              await Promise.all([
+                page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }),
+                nextPageLink.click()
+              ]);
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              console.log(`[Puppeteer][SAP] Navigated to page ${pageNum + 1}.`);
+            } else {
+              console.log(`[Puppeteer][SAP] Could not find next page link on page ${pageNum}.`);
+              break;
+            }
+          } catch (error) {
+            console.log(`[Puppeteer][SAP] Error navigating to next page: ${error.message}`);
+            break;
+          }
         }
       }
+      
       // Remove duplicates based on title and URL
       const uniqueJobs = [];
       const seenJobs = new Set();
-      for (const job of jobs) {
+      for (const job of allJobs) {
         const jobKey = `${job.title}|${job.url}`;
         if (!seenJobs.has(jobKey)) {
           seenJobs.add(jobKey);
@@ -688,18 +1266,30 @@ async function parsePuppeteer(url, keyword) {
         }
       }
       jobs = uniqueJobs;
-      console.log(`[Puppeteer][DEBUG][SAP] Extracted jobs (after deduplication):`, jobs);
+      
+      // Log summary
+      console.log(`[Puppeteer][SAP] Pagination summary: jobs per page:`, jobsPerPage);
+      console.log(`[Puppeteer][SAP] Total jobs extracted from first 5 pages: ${jobs.length}`);
+      console.log(`[Puppeteer][SAP] First 10 jobs:`, jobs.slice(0, 10));
     } else if (isHcl) {
       await new Promise(resolve => setTimeout(resolve, 5000));
+      let allJobs = [];
+      let jobsPerPage = [];
+      
+      for (let pageNum = 1; pageNum <= 5; pageNum++) {
+        console.log(`[Puppeteer][HCL] Processing page ${pageNum}...`);
+        
       await page.waitForSelector('table tbody tr', { timeout: 15000 }).catch(() => {
         console.log('[Puppeteer] No HCLTech job cards found after waiting.');
       });
+        
       const debugHcl = await page.evaluate(() => {
         const cards = Array.from(document.querySelectorAll('table tbody tr'));
         return cards.map(card => card.innerText);
       });
-      console.log(`[Puppeteer][DEBUG][HCLTech] Found ${debugHcl.length} job cards. InnerText:`, debugHcl);
-      jobs = await page.evaluate((keywordLower) => {
+        console.log(`[Puppeteer][DEBUG][HCLTech][Page ${pageNum}] Found ${debugHcl.length} job cards. InnerText:`, debugHcl);
+        
+        let jobs = await page.evaluate((keywordLower) => {
         const cards = Array.from(document.querySelectorAll('table tbody tr'));
         return cards.map(card => {
           const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
@@ -722,59 +1312,130 @@ async function parsePuppeteer(url, keyword) {
           };
         }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
       }, keywordLower);
-      console.log(`[Puppeteer][DEBUG][HCLTech] Extracted jobs:`, jobs);
+        
+        // Filter jobs by keyword
+        jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        allJobs = allJobs.concat(jobs);
+        jobsPerPage.push(jobs.length);
+        
+        console.log(`[Puppeteer][HCL][Page ${pageNum}] Extracted ${jobs.length} jobs:`);
+        jobs.forEach((job, index) => {
+          console.log(`  ${index + 1}. ${job.title} - ${job.location} - ${job.datePosted}`);
+        });
+        
+        // Navigate to next page if not on the last page
+        if (pageNum < 5) {
+          try {
+            // Look for pagination controls - HCL might use different selectors
+            const paginationSelectors = [
+              'a[href*="page="]',
+              'a[href*="p="]',
+              'ul.pagination a',
+              'div.pagination a',
+              'a[class*="next"]',
+              'a[class*="page"]'
+            ];
+            
+            let nextPageLink = null;
+            for (const selector of paginationSelectors) {
+              const links = await page.$$(selector);
+              for (const link of links) {
+                const text = await (await link.getProperty('innerText')).jsonValue();
+                if (text.trim() === String(pageNum + 1) || text.trim().toLowerCase().includes('next')) {
+                  nextPageLink = link;
+                  break;
+                }
+              }
+              if (nextPageLink) break;
+            }
+            
+            if (nextPageLink) {
+              await nextPageLink.evaluate(b => b.scrollIntoView());
+              await Promise.all([
+                page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }),
+                nextPageLink.click()
+              ]);
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              console.log(`[Puppeteer][HCL] Navigated to page ${pageNum + 1}.`);
+            } else {
+              console.log(`[Puppeteer][HCL] Could not find next page link on page ${pageNum}.`);
+              break;
+            }
+          } catch (error) {
+            console.log(`[Puppeteer][HCL] Error navigating to next page: ${error.message}`);
+            break;
+          }
+        }
+      }
+      
+      // Remove duplicates based on title and URL
+      const uniqueJobs = [];
+      const seenJobs = new Set();
+      for (const job of allJobs) {
+        const jobKey = `${job.title}|${job.url}`;
+        if (!seenJobs.has(jobKey)) {
+          seenJobs.add(jobKey);
+          uniqueJobs.push(job);
+        }
+      }
+      jobs = uniqueJobs;
+      
+      // Log summary
+      console.log(`[Puppeteer][HCL] Pagination summary: jobs per page:`, jobsPerPage);
+      console.log(`[Puppeteer][HCL] Total jobs extracted from first 5 pages: ${jobs.length}`);
+      console.log(`[Puppeteer][HCL] First 10 jobs:`, jobs.slice(0, 10));
     } else if (isWipro) {
       await new Promise(resolve => setTimeout(resolve, 5000));
       let allJobs = [];
       for (let pageNum = 1; pageNum <= 5; pageNum++) {
-        await page.waitForSelector('tr.data-row', { timeout: 15000 }).catch(() => {
-          console.log('[Puppeteer] No Wipro job cards found after waiting.');
-        });
-        // Log the outerHTML of the first 3 tr.data-row elements
-        const debugWiproHtml = await page.evaluate(() => {
-          return Array.from(document.querySelectorAll('tr.data-row')).slice(0, 3).map(row => row.outerHTML);
-        });
+      await page.waitForSelector('tr.data-row', { timeout: 15000 }).catch(() => {
+        console.log('[Puppeteer] No Wipro job cards found after waiting.');
+      });
+      // Log the outerHTML of the first 3 tr.data-row elements
+      const debugWiproHtml = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll('tr.data-row')).slice(0, 3).map(row => row.outerHTML);
+      });
         console.log(`[Puppeteer][DEBUG][Wipro][Page ${pageNum}] First 3 tr.data-row outerHTML:`, debugWiproHtml);
         let jobs = await page.evaluate(() => {
-          const cards = Array.from(document.querySelectorAll('tr.data-row'));
-          return cards.map(card => {
-            let title = '';
-            let url = '';
-            const titleTd = card.querySelector('td.colTitle');
-            if (titleTd) {
-              const link = titleTd.querySelector('a');
-              if (link) {
-                title = link.innerText.trim();
-                url = link.href.startsWith('http') ? link.href : ('https://careers.wipro.com' + link.getAttribute('href'));
-              } else {
-                title = titleTd.innerText.trim();
-              }
+        const cards = Array.from(document.querySelectorAll('tr.data-row'));
+        return cards.map(card => {
+          let title = '';
+          let url = '';
+          const titleTd = card.querySelector('td.colTitle');
+          if (titleTd) {
+            const link = titleTd.querySelector('a');
+            if (link) {
+              title = link.innerText.trim();
+              url = link.href.startsWith('http') ? link.href : ('https://careers.wipro.com' + link.getAttribute('href'));
+            } else {
+              title = titleTd.innerText.trim();
             }
-            let location = '';
-            const locationTd = card.querySelector('td.colLocation');
-            if (locationTd) location = locationTd.innerText.trim();
-            let datePosted = '';
-            const dateTd = card.querySelector('td.colDate');
-            if (dateTd) {
-              const dateText = dateTd.innerText.trim();
-              const m = dateText.match(/([A-Za-z]+) (\d{1,2}), (\d{4})/);
-              if (m) {
-                const months = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
-                const month = months[m[1].slice(0,3)];
-                datePosted = `${m[3]}-${month}-${m[2].padStart(2,'0')}`;
-              }
+          }
+          let location = '';
+          const locationTd = card.querySelector('td.colLocation');
+          if (locationTd) location = locationTd.innerText.trim();
+          let datePosted = '';
+          const dateTd = card.querySelector('td.colDate');
+          if (dateTd) {
+            const dateText = dateTd.innerText.trim();
+            const m = dateText.match(/([A-Za-z]+) (\d{1,2}), (\d{4})/);
+            if (m) {
+              const months = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+              const month = months[m[1].slice(0,3)];
+              datePosted = `${m[3]}-${month}-${m[2].padStart(2,'0')}`;
             }
-            return {
-              title,
-              location,
-              datePosted,
-              url
-            };
-          });
+          }
+          return {
+            title,
+            location,
+            datePosted,
+            url
+          };
         });
-        // Log the extracted fields for the first 5 jobs
+      });
+      // Log the extracted fields for the first 5 jobs
         console.log(`[Puppeteer][DEBUG][Wipro][Page ${pageNum}] First 5 extracted jobs:`, jobs.slice(0, 5));
-        jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+      jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
         allJobs = allJobs.concat(jobs);
         // Click the next page number if not on the last page
         if (pageNum < 5) {
@@ -805,6 +1466,9 @@ async function parsePuppeteer(url, keyword) {
       console.log(`[Puppeteer][DEBUG][Wipro] Extracted jobs from first 5 pages:`, jobs.slice(0, 10));
     } else if (isAdobe) {
       await new Promise(resolve => setTimeout(resolve, 5000));
+      let allJobs = [];
+      let jobsPerPage = [];
+      for (let pageNum = 1; pageNum <= 5; pageNum++) {
       await page.waitForSelector('li.jobs-list-item.au-target.phw-card-block-nd', { timeout: 15000 }).catch(() => {
         console.log('[Puppeteer] No Adobe job cards found after waiting.');
       });
@@ -812,8 +1476,8 @@ async function parsePuppeteer(url, keyword) {
         const cards = Array.from(document.querySelectorAll('li.jobs-list-item.au-target.phw-card-block-nd'));
         return cards.map(card => card.innerText);
       });
-      console.log(`[Puppeteer][DEBUG][Adobe] Found ${debugAdobe.length} job cards. InnerText:`, debugAdobe);
-      jobs = await page.evaluate((keywordLower) => {
+        console.log(`[Puppeteer][DEBUG][Adobe][Page ${pageNum}] Found ${debugAdobe.length} job cards. InnerText:`, debugAdobe);
+        let jobs = await page.evaluate((keywordLower) => {
         const cards = Array.from(document.querySelectorAll('li.jobs-list-item.au-target.phw-card-block-nd'));
         return cards.map(card => {
           const lines = card.innerText.split('\n').map(l => l.trim()).filter(Boolean);
@@ -841,6 +1505,7 @@ async function parsePuppeteer(url, keyword) {
           };
         }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
       }, keywordLower);
+        
       // Post-process to clean Adobe jobs
       jobs = jobs.map(job => {
         // Extract date from description
@@ -857,8 +1522,46 @@ async function parsePuppeteer(url, keyword) {
           url: job.url
         };
       });
-      console.log(`[Puppeteer][DEBUG][Adobe] Extracted jobs:`, jobs);
+        
+        jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        allJobs = allJobs.concat(jobs);
+        jobsPerPage.push(jobs.length);
+        // Log all job titles for this page
+        console.log(`[Puppeteer][Adobe][Page ${pageNum}] Found ${jobs.length} jobs:`);
+        jobs.forEach((job, index) => {
+          console.log(`  ${index + 1}. ${job.title} - ${job.location} - ${job.datePosted}`);
+        });
+        
+        // Click the next page button if not on the last page
+        if (pageNum < 5) {
+          const nextBtnSelector = 'a[aria-label="View next page"]';
+          await page.waitForSelector(nextBtnSelector, { timeout: 10000 });
+          const nextBtn = await page.$(nextBtnSelector);
+          if (nextBtn) {
+            await nextBtn.evaluate(b => b.scrollIntoView());
+            const isDisabled = await (await nextBtn.getProperty('disabled')).jsonValue().catch(() => false);
+            if (!isDisabled) {
+              await nextBtn.click();
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              console.log(`[Puppeteer][Adobe] Clicked Next button for page ${pageNum + 1}.`);
+            } else {
+              console.log(`[Puppeteer][Adobe] Next button is disabled on page ${pageNum}.`);
+              break;
+            }
+          } else {
+            console.log(`[Puppeteer][Adobe] Could not find Next button on page ${pageNum}.`);
+            break;
+          }
+        }
+      }
+      jobs = allJobs;
+      // Log summary
+      console.log(`[Puppeteer][Adobe] Pagination summary: jobs per page:`, jobsPerPage);
+      console.log(`[Puppeteer][Adobe] Total jobs extracted from first 5 pages: ${jobs.length}`);
+      console.log(`[Puppeteer][Adobe] First 10 jobs:`, jobs.slice(0, 10));
     } else if (isGoogle) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
       // Debug: Print page title and some HTML to understand the structure
       const pageInfo = await page.evaluate(() => {
         return {
@@ -869,7 +1572,6 @@ async function parsePuppeteer(url, keyword) {
         };
       });
       console.log(`[Puppeteer][DEBUG][Google] Page title: ${pageInfo.title}`);
-      console.log(`[Puppeteer][DEBUG][Google] Body text preview: ${pageInfo.bodyText}`);
       console.log(`[Puppeteer][DEBUG][Google] Total divs: ${pageInfo.allDivs}, Total links: ${pageInfo.allLinks}`);
       
       // Try multiple selectors for Google job cards
@@ -905,7 +1607,7 @@ async function parsePuppeteer(url, keyword) {
       // Always run the text extraction logic for Google
       let lines = pageInfo.bodyText.split('\n').map(l => l.trim()).filter(Boolean);
       console.log(`[Puppeteer][DEBUG][Google] First 40 non-blank lines:`, lines.slice(0, 40));
-      jobs = [];
+      let jobs = [];
       for (let i = 0; i < lines.length - 3; i++) {
         const title = lines[i];
         const locationLine = lines[i+1];
@@ -930,148 +1632,291 @@ async function parsePuppeteer(url, keyword) {
             }
             return '';
           }, title);
+          
+          // If URL is still empty, try to find any link near the job title
+          if (!url) {
+            url = await page.evaluate((jobTitle) => {
+              const allLinks = Array.from(document.querySelectorAll('a'));
+              for (const link of allLinks) {
+                // Look for links that might be job links
+                if (link.href && link.href.includes('/jobs/') && link.innerText.trim() === 'Learn more') {
+                  // Check if this link is near our job title
+                  let container = link.closest('div, li, article, section');
+                  if (container && container.innerText.includes(jobTitle)) {
+                    return link.href;
+                  }
+                }
+              }
+              return '';
+            }, title);
+          }
           jobs.push({
             title,
-            location,
-            datePosted: '',
-            url
+            location
           });
-          console.log(`[Puppeteer][DEBUG][Google] Matched job block:`, {title, location, url});
+          console.log(`[Puppeteer][DEBUG][Google] Matched job block:`, {title, location});
         }
       }
       console.log(`[Puppeteer][DEBUG][Google] FINAL Extracted jobs:`, jobs);
       jobs = jobs.filter(j => j.title && j.title.trim().length > 0);
       
       jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
-      console.log(`[Puppeteer][DEBUG][Google] Extracted jobs:`, jobs);
+      
+      // Log all job titles
+      console.log(`[Puppeteer][Google] Found ${jobs.length} jobs:`);
+      jobs.forEach((job, index) => {
+        console.log(`  ${index + 1}. ${job.title} - ${job.location}`);
+      });
+      
+      console.log(`[Puppeteer][Google] Total jobs extracted: ${jobs.length}`);
+      console.log(`[Puppeteer][Google] First 10 jobs:`, jobs.slice(0, 10));
+      
+      // For Google, return jobs directly without additional filtering
+      await browser.close();
+      console.log(`[Puppeteer] Browser closed. Total jobs found: ${jobs.length}`);
+      return jobs;
     } else if (isApple) {
-      await page.waitForSelector('a[href*="/details/"]', { timeout: 15000 }).catch(() => {
-        console.log('[Puppeteer] No Apple job links found after waiting.');
-      });
-      
-      // Debug: Print page structure to understand where job details are
-      const pageStructure = await page.evaluate(() => {
-        const jobLinks = Array.from(document.querySelectorAll('a[href*="/details/"]'));
-        return jobLinks.slice(0, 2).map(link => {
-          let container = link.closest('div, li, article, section');
-          return {
-            linkText: link.innerText,
-            containerText: container ? container.innerText : 'No container found',
-            containerHTML: container ? container.outerHTML.substring(0, 500) : 'No container found'
-          };
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      let allJobs = [];
+      let jobsPerPage = [];
+      for (let pageNum = 1; pageNum <= 5; pageNum++) {
+        await page.waitForSelector('a[href*="/details/"]', { timeout: 15000 }).catch(() => {
+          console.log('[Puppeteer] No Apple job links found after waiting.');
         });
-      });
-      console.log('[Puppeteer][DEBUG][Apple] Page structure:', JSON.stringify(pageStructure, null, 2));
-      
-      jobs = await page.evaluate((keywordLower) => {
-        const cards = Array.from(document.querySelectorAll('a[href*="/details/"]'));
-        return cards.map(card => {
-          const title = card.innerText.trim() || '';
-          const url = card.href || '';
-          
-          // Try to find job details in the parent container
-          let container = card.closest('div, li, article, section');
-          let location = '';
-          let function_ = '';
-          let datePosted = '';
-          
-          if (container) {
-            const containerText = container.innerText;
-            const lines = containerText.split('\n').map(l => l.trim()).filter(Boolean);
+        
+        // Debug: Print page structure to understand where job details are
+        const pageStructure = await page.evaluate(() => {
+          const jobLinks = Array.from(document.querySelectorAll('a[href*="/details/"]'));
+          return jobLinks.slice(0, 2).map(link => {
+            let container = link.closest('div, li, article, section');
+            return {
+              linkText: link.innerText,
+              containerText: container ? container.innerText : 'No container found',
+              containerHTML: container ? container.outerHTML.substring(0, 500) : 'No container found'
+            };
+          });
+        });
+        console.log(`[Puppeteer][DEBUG][Apple][Page ${pageNum}] Page structure:`, JSON.stringify(pageStructure, null, 2));
+        
+        let jobs = await page.evaluate((keywordLower) => {
+          const cards = Array.from(document.querySelectorAll('a[href*="/details/"]'));
+          return cards.map(card => {
+            const title = card.innerText.trim() || '';
+            const url = card.href || '';
             
-            // Look for date patterns first
-            for (let line of lines) {
-              if (/\d{1,2}\s+[A-Za-z]{3}\s+\d{4}/.test(line)) {
-                datePosted = line;
+            // Try to find job details in the parent container
+            let container = card.closest('div, li, article, section');
+            let location = '';
+            let function_ = '';
+            let datePosted = '';
+            
+            if (container) {
+              const containerText = container.innerText;
+              const lines = containerText.split('\n').map(l => l.trim()).filter(Boolean);
+              
+              // Look for date patterns first
+              for (let line of lines) {
+                if (/\d{1,2}\s+[A-Za-z]{3}\s+\d{4}/.test(line)) {
+                  datePosted = line;
+                  break;
+                }
+              }
+              
+              // Look for function/team (usually the second line after title)
+              for (let i = 0; i < lines.length; i++) {
+                if (lines[i] === title && i + 1 < lines.length) {
+                  const nextLine = lines[i + 1];
+                  if (nextLine && nextLine !== datePosted && !/^\d/.test(nextLine)) {
+                    function_ = nextLine;
+                    break;
+                  }
+                }
+              }
+              
+              // Look for location patterns (usually not in the main container text)
+              // Set a default location since these are Bangalore jobs
+              location = 'Bengaluru';
+            }
+            
+            return {
+              title,
+              url,
+              location,
+              function: function_,
+              experience: '',
+              datePosted,
+              skills: []
+            };
+          }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        }, keywordLower);
+        
+        jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        allJobs = allJobs.concat(jobs);
+        jobsPerPage.push(jobs.length);
+        // Log only the first 3 job titles for this page
+        console.log(`[Puppeteer][Apple][Page ${pageNum}] First 3 job titles:`, jobs.slice(0, 3).map(j => j.title));
+        
+        // Click the next page button if not on the last page
+        if (pageNum < 5) {
+          const nextBtnSelector = 'button.icon.icon-chevronend';
+          await page.waitForSelector(nextBtnSelector, { timeout: 10000 });
+          const nextBtn = await page.$(nextBtnSelector);
+          if (nextBtn) {
+            await nextBtn.evaluate(b => b.scrollIntoView());
+            const isDisabled = await (await nextBtn.getProperty('disabled')).jsonValue().catch(() => false);
+            if (!isDisabled) {
+              await Promise.all([
+                page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }),
+                nextBtn.click()
+              ]);
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              console.log(`[Puppeteer][Apple] Clicked Next button for page ${pageNum + 1}.`);
+            } else {
+              console.log(`[Puppeteer][Apple] Next button is disabled on page ${pageNum}.`);
+              break;
+            }
+          } else {
+            console.log(`[Puppeteer][Apple] Could not find Next button on page ${pageNum}.`);
+            break;
+          }
+        }
+      }
+      jobs = allJobs;
+      // Log summary
+      console.log(`[Puppeteer][Apple] Pagination summary: jobs per page:`, jobsPerPage);
+      console.log(`[Puppeteer][Apple] Total jobs extracted from first 5 pages: ${jobs.length}`);
+      console.log(`[Puppeteer][Apple] First 10 jobs:`, jobs.slice(0, 10));
+    } else if (isDeloitte) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      let allJobs = [];
+      let jobsPerPage = [];
+      
+      for (let pageNum = 1; pageNum <= 5; pageNum++) {
+        console.log(`[Puppeteer][Deloitte] Processing page ${pageNum}...`);
+        
+        // Wait for job links to load
+        await page.waitForSelector('a[href*="/job/"]', { timeout: 15000 }).catch(() => {
+          console.log('[Puppeteer] No Deloitte job links found after waiting.');
+        });
+        
+        // Extract jobs from current page
+        let jobs = await page.evaluate((keywordLower) => {
+          const cards = Array.from(document.querySelectorAll('a[href*="/job/"]'));
+          return cards.map(card => {
+            const title = card.innerText.trim() || '';
+            const url = card.href || '';
+            
+            // Try to find job details in the parent container
+            let container = card.closest('div, li, article, section');
+            let location = '';
+            let function_ = '';
+            let datePosted = '';
+            
+            if (container) {
+              const containerText = container.innerText;
+              const lines = containerText.split('\n').map(l => l.trim()).filter(Boolean);
+              
+              // Look for location and date combined (e.g., "Bengaluru, IN\tJul 14, 2025")
+              for (let line of lines) {
+                if (line.includes('\t') && /[A-Za-z]+, IN\t[A-Za-z]{3} \d{1,2}, \d{4}/.test(line)) {
+                  const parts = line.split('\t');
+                  if (parts.length === 2) {
+                    location = parts[0].trim();
+                    datePosted = parts[1].trim();
+                    break;
+                  }
+                }
+              }
+              
+              // If not found in combined format, look for separate patterns
+              if (!location || !datePosted) {
+                for (let line of lines) {
+                  // Look for location patterns
+                  if (/[A-Za-z]+, IN$/.test(line)) {
+                    location = line;
+                  }
+                  // Look for date patterns
+                  else if (/[A-Za-z]{3} \d{1,2}, \d{4}/.test(line)) {
+                    datePosted = line;
+                  }
+                }
+              }
+            }
+            
+            return {
+              title,
+              url,
+              location,
+              function: function_,
+              experience: '',
+              datePosted,
+              skills: []
+            };
+          }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        }, keywordLower);
+        
+        // Filter jobs by keyword
+        jobs = jobs.filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
+        allJobs = allJobs.concat(jobs);
+        jobsPerPage.push(jobs.length);
+        
+        console.log(`[Puppeteer][Deloitte][Page ${pageNum}] Extracted ${jobs.length} jobs:`);
+        jobs.forEach((job, index) => {
+          console.log(`  ${index + 1}. ${job.title} - ${job.location} - ${job.datePosted}`);
+        });
+        
+        // Navigate to next page if not on the last page
+        if (pageNum < 5) {
+          try {
+            // Look for the next page number link based on the screenshot
+            const nextPageNum = pageNum + 1;
+            const pageLinkSelector = `ul.pagination li a`;
+            await page.waitForSelector(pageLinkSelector, { timeout: 10000 });
+            const pageLinks = await page.$$(pageLinkSelector);
+            
+            let clicked = false;
+            for (const link of pageLinks) {
+              const text = await (await link.getProperty('innerText')).jsonValue();
+              if (text.trim() === String(nextPageNum)) {
+                await link.evaluate(b => b.scrollIntoView());
+                await Promise.all([
+                  page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }),
+                  link.click()
+                ]);
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                clicked = true;
+                console.log(`[Puppeteer][Deloitte] Clicked page ${nextPageNum} link.`);
                 break;
               }
             }
             
-            // Look for function/team (usually the second line after title)
-            for (let i = 0; i < lines.length; i++) {
-              if (lines[i] === title && i + 1 < lines.length) {
-                const nextLine = lines[i + 1];
-                if (nextLine && nextLine !== datePosted && !/^\d/.test(nextLine)) {
-                  function_ = nextLine;
-                  break;
-                }
-              }
+            if (!clicked) {
+              console.log(`[Puppeteer][Deloitte] Could not find page ${nextPageNum} link.`);
+              break;
             }
-            
-            // Look for location patterns (usually not in the main container text)
-            // Set a default location since these are Bangalore jobs
-            location = 'Bengaluru';
+          } catch (error) {
+            console.log(`[Puppeteer][Deloitte] Error navigating to next page: ${error.message}`);
+            break;
           }
-          
-          return {
-            title,
-            url,
-            location,
-            function: function_,
-            experience: '',
-            datePosted,
-            skills: []
-          };
-        }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
-      }, keywordLower);
-    } else if (isDeloitte) {
-      await page.waitForSelector('a[href*="/job/"]', { timeout: 15000 }).catch(() => {
-        console.log('[Puppeteer] No Deloitte job links found after waiting.');
-      });
-      jobs = await page.evaluate((keywordLower) => {
-        const cards = Array.from(document.querySelectorAll('a[href*="/job/"]'));
-        return cards.map(card => {
-          const title = card.innerText.trim() || '';
-          const url = card.href || '';
-          
-          // Try to find job details in the parent container
-          let container = card.closest('div, li, article, section');
-          let location = '';
-          let function_ = '';
-          let datePosted = '';
-          
-          if (container) {
-            const containerText = container.innerText;
-            const lines = containerText.split('\n').map(l => l.trim()).filter(Boolean);
-            
-            // Look for location and date combined (e.g., "Bengaluru, IN\tJul 14, 2025")
-            for (let line of lines) {
-              if (line.includes('\t') && /[A-Za-z]+, IN\t[A-Za-z]{3} \d{1,2}, \d{4}/.test(line)) {
-                const parts = line.split('\t');
-                if (parts.length === 2) {
-                  location = parts[0].trim();
-                  datePosted = parts[1].trim();
-                  break;
-                }
-              }
-            }
-            
-            // If not found in combined format, look for separate patterns
-            if (!location || !datePosted) {
-              for (let line of lines) {
-                // Look for location patterns
-                if (/[A-Za-z]+, IN$/.test(line)) {
-                  location = line;
-                }
-                // Look for date patterns
-                else if (/[A-Za-z]{3} \d{1,2}, \d{4}/.test(line)) {
-                  datePosted = line;
-                }
-              }
-            }
-          }
-          
-          return {
-            title,
-            url,
-            location,
-            function: function_,
-            experience: '',
-            datePosted,
-            skills: []
-          };
-        }).filter(j => keywordLower === '' || (j.title && j.title.toLowerCase().includes(keywordLower)));
-      }, keywordLower);
+        }
+      }
+      
+      // Remove duplicates based on title and URL
+      const uniqueJobs = [];
+      const seenJobs = new Set();
+      for (const job of allJobs) {
+        const jobKey = `${job.title}|${job.url}`;
+        if (!seenJobs.has(jobKey)) {
+          seenJobs.add(jobKey);
+          uniqueJobs.push(job);
+        }
+      }
+      jobs = uniqueJobs;
+      
+      // Log summary
+      console.log(`[Puppeteer][Deloitte] Pagination summary: jobs per page:`, jobsPerPage);
+      console.log(`[Puppeteer][Deloitte] Total jobs extracted from first 5 pages: ${jobs.length}`);
+      console.log(`[Puppeteer][Deloitte] First 10 jobs:`, jobs.slice(0, 10));
     } else {
       jobs = await page.evaluate((keywordLower) => {
         return Array.from(document.querySelectorAll('div.row.custom-row.searched-job, tr.job, tr.data-row, div.job-tile, div.job-listing, li.job, div.job, div.job-list-item')).map(jobDiv => {

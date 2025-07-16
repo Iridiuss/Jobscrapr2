@@ -13,7 +13,9 @@
     "ibegin.tcsapps.com": "puppeteer",
     "southasiacareers.deloitte.com": "puppeteer",
     "www.google.com": "puppeteer",
+    "careers.google.com": "puppeteer",
     "career.infosys.com": "puppeteer",
+    "infosys.com": "puppeteer",
     "jobs.careers.microsoft.com": "puppeteer",
     "jobs.apple.com": "puppeteer",
     "www.metacareers.com": "puppeteer",
@@ -22,6 +24,8 @@
     "amazon.jobs": "puppeteer",
     "default": "generic",
     "careers.adobe.com": "puppeteer",
-    "careers.wipro.com": "puppeteer"
+    "careers.wipro.com": "puppeteer",
+    "hcltech.com": "puppeteer",
+    "www.hcltech.com": "puppeteer"
   }
   

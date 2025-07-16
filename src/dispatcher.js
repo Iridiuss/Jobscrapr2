@@ -81,13 +81,10 @@ async function scrapeJobs(options) {
 
   // Special case for google.com: use the Google Careers jobs results page
   if (companyUrl.includes('google.com')) {
-    companyUrl = 'https://www.google.com/about/careers/applications/jobs/results';
+    companyUrl = 'https://careers.google.com/jobs/results/';
   }
 
-  // Special case for infosys.com: use the Infosys jobs page
-  if (companyUrl.includes('infosys.com')) {
-    companyUrl = 'https://career.infosys.com/jobs?companyhiringtype=IL&countrycode=IN';
-  }
+  
 
   // Special case for microsoft.com: use the Microsoft jobs search page
   if (companyUrl.includes('microsoft.com')) {
@@ -157,6 +154,11 @@ async function scrapeJobs(options) {
   // Special case for adobe.com: use the Adobe engineering and product jobs page
   if (companyUrl.includes('adobe.com')) {
     companyUrl = 'https://careers.adobe.com/us/en/c/engineering-and-product-jobs';
+  }
+
+  // Special case for infosys.com: use the Infosys careers page
+  if (companyUrl.includes('infosys.com')) {
+    companyUrl = 'https://career.infosys.com/jobs?companyhiringtype=IL&countrycode=IN';
   }
 
   return await dispatch(companyUrl, job);
