@@ -32,6 +32,9 @@ app.post('/api/scrape', async (req, res) => {
 
     const results = await dispatcher.scrapeJobs(options);
     
+    console.log(`[API] Scraping completed: ${results.length} jobs found`);
+    console.log(`[API] First 3 jobs:`, results.slice(0, 3));
+    
     res.json({
       success: true,
       data: results,

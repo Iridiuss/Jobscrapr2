@@ -1006,16 +1006,73 @@ async function parsePuppeteer(url, keyword) {
         const cards = Array.from(document.querySelectorAll('tr.data-row'));
           return cards.map((card, index) => {
             const titleLink = card.querySelector('a');
-            const title = titleLink ? titleLink.innerText.trim() : (card.innerText.split('\n')[0] || '');
-            const location = card.innerText.split('\n')[1] || '';
+            let title = titleLink ? titleLink.innerText.trim() : (card.innerText.split('\n')[0] || '');
+            let location = card.innerText.split('\n')[1] || '';
+            
+            // Clean location - remove tabs and extra whitespace
+            location = location.replace(/\t/g, '').replace(/\s+/g, ' ').trim();
+            
+            // Extract experience from title if present
+            let experience = '';
+            const experiencePatterns = [
+              /(\d+\+?\s*Years?)/i,
+              /(Ex\s+\d+-\d+Y)/i,
+              /(Ex\s+\d+\+?\s*Years?)/i,
+              /(\d+-\d+\s*Years?)/i,
+              /(\d+\+?\s*Years?\s*Experience)/i
+            ];
+            
+            for (const pattern of experiencePatterns) {
+              const experienceMatch = title.match(pattern);
+              if (experienceMatch) {
+                experience = experienceMatch[0];
+                // Remove experience from title
+                title = title.replace(experienceMatch[0], '').replace(/[,\s]+$/, '').trim();
+                break;
+              }
+            }
+            
+            // Also check for experience in the full card text if not found in title
+            if (!experience) {
+              const cardText = card.innerText;
+              for (const pattern of experiencePatterns) {
+                const cardExperienceMatch = cardText.match(pattern);
+                if (cardExperienceMatch) {
+                  experience = cardExperienceMatch[0];
+                  break;
+                }
+              }
+            }
+            
+            // Remove location info from title if it's embedded
+            const locationPatterns = [
+              /[-–]\s*([A-Za-z\s,]+),\s*[A-Z]{2,3}\s*$/i,
+              /[-–]\s*([A-Za-z\s,]+)\s*$/i
+            ];
+            
+            for (const pattern of locationPatterns) {
+              const match = title.match(pattern);
+              if (match) {
+                title = title.replace(pattern, '').trim();
+                break;
+              }
+            }
+            
           return {
               index,
             title,
             location,
+            experience,
               hasLink: !!titleLink,
               linkHref: titleLink ? titleLink.href : ''
             };
           });
+        });
+        
+        // Debug logging outside of page.evaluate()
+        console.log(`[Puppeteer][SAP][Page ${pageNum}] Found ${jobCards.length} job cards.`);
+        jobCards.forEach((job, i) => {
+          console.log(`[DEBUG] Job ${i + 1}: Title="${job.title}", Location="${job.location}", Experience="${job.experience}"`);
         });
         
         console.log(`[Puppeteer][SAP][Page ${pageNum}] Found ${jobCards.length} job cards.`);
@@ -1140,7 +1197,7 @@ async function parsePuppeteer(url, keyword) {
                   url: jobDetails.url,
                   datePosted: jobDetails.datePosted,
             function: '',
-            experience: '',
+            experience: jobCard.experience || '',
                   skills: jobDetails.skills || []
                 });
 
@@ -1174,7 +1231,7 @@ async function parsePuppeteer(url, keyword) {
                   url: jobCard.linkHref || '',
             datePosted: '',
                   function: '',
-                  experience: '',
+                  experience: jobCard.experience || '',
             skills: []
                 });
               }
@@ -1186,7 +1243,7 @@ async function parsePuppeteer(url, keyword) {
                 url: jobCard.linkHref || '',
                 datePosted: '',
                 function: '',
-                experience: '',
+                experience: jobCard.experience || '',
                 skills: []
               });
             }
@@ -1198,7 +1255,7 @@ async function parsePuppeteer(url, keyword) {
               url: jobCard.linkHref || '',
               datePosted: '',
               function: '',
-              experience: '',
+              experience: jobCard.experience || '',
               skills: []
             });
           }
@@ -1217,6 +1274,26 @@ async function parsePuppeteer(url, keyword) {
         // Navigate to next page if not on the last page
         if (pageNum < 5) {
           try {
+            // Debug: Check what pagination elements exist
+            const paginationDebug = await page.evaluate(() => {
+              const allLinks = Array.from(document.querySelectorAll('a'));
+              const paginationLinks = allLinks.filter(link => {
+                const href = link.href || '';
+                const text = link.innerText || '';
+                return href.includes('page') || href.includes('150') || 
+                       text.toLowerCase().includes('next') || 
+                       text.toLowerCase().includes('page') ||
+                       link.title === 'Next Page' || link.title === 'Last Page';
+              });
+              return paginationLinks.map(link => ({
+                href: link.href,
+                text: link.innerText,
+                title: link.title,
+                className: link.className
+              }));
+            });
+            console.log(`[Puppeteer][SAP][Page ${pageNum}] Pagination debug:`, paginationDebug);
+            
             // Look for pagination controls - try different selectors based on the screenshot
             const paginationSelectors = [
               'a[title="Next Page"]',
@@ -1224,16 +1301,30 @@ async function parsePuppeteer(url, keyword) {
               'a.paginationItemLast',
               'a[href*="page="]',
               'a[href*="150"]', // Based on the URL pattern in screenshot
-              'ul.pagination a:last-child'
+              'ul.pagination a:last-child',
+              'a[href*="p="]',
+              'a[class*="next"]',
+              'a[class*="pagination"]'
             ];
             
             let nextPageLink = null;
             for (const selector of paginationSelectors) {
-              nextPageLink = await page.$(selector);
-              if (nextPageLink) {
-                console.log(`[Puppeteer][SAP] Found pagination link with selector: ${selector}`);
-                break;
+              const links = await page.$$(selector);
+              for (const link of links) {
+                const href = await (await link.getProperty('href')).jsonValue();
+                const text = await (await link.getProperty('innerText')).jsonValue();
+                console.log(`[Puppeteer][SAP] Checking link: href="${href}", text="${text}"`);
+                
+                // Check if this is a next page link
+                if (href.includes('page') || href.includes('150') || 
+                    text.toLowerCase().includes('next') || 
+                    text.toLowerCase().includes('page')) {
+                  nextPageLink = link;
+                  console.log(`[Puppeteer][SAP] Found next page link: href="${href}", text="${text}"`);
+                  break;
+                }
               }
+              if (nextPageLink) break;
             }
             
             if (nextPageLink) {
@@ -1468,7 +1559,9 @@ async function parsePuppeteer(url, keyword) {
       await new Promise(resolve => setTimeout(resolve, 5000));
       let allJobs = [];
       let jobsPerPage = [];
+      console.log(`[Puppeteer][Adobe] Starting pagination loop for 5 pages`);
       for (let pageNum = 1; pageNum <= 5; pageNum++) {
+        console.log(`[Puppeteer][Adobe] Processing page ${pageNum}/5`);
       await page.waitForSelector('li.jobs-list-item.au-target.phw-card-block-nd', { timeout: 15000 }).catch(() => {
         console.log('[Puppeteer] No Adobe job cards found after waiting.');
       });
@@ -1534,9 +1627,49 @@ async function parsePuppeteer(url, keyword) {
         
         // Click the next page button if not on the last page
         if (pageNum < 5) {
-          const nextBtnSelector = 'a[aria-label="View next page"]';
-          await page.waitForSelector(nextBtnSelector, { timeout: 10000 });
-          const nextBtn = await page.$(nextBtnSelector);
+          // Debug: Check what pagination elements exist
+          const paginationDebug = await page.evaluate(() => {
+            const allLinks = Array.from(document.querySelectorAll('a'));
+            const paginationLinks = allLinks.filter(link => {
+              const href = link.href || '';
+              const text = link.innerText || '';
+              const ariaLabel = link.getAttribute('aria-label') || '';
+              return href.includes('page') || 
+                     text.toLowerCase().includes('next') || 
+                     text.toLowerCase().includes('page') ||
+                     ariaLabel.toLowerCase().includes('next') ||
+                     ariaLabel.toLowerCase().includes('page');
+            });
+            return paginationLinks.map(link => ({
+              href: link.href,
+              text: link.innerText,
+              ariaLabel: link.getAttribute('aria-label'),
+              className: link.className
+            }));
+          });
+          console.log(`[Puppeteer][Adobe][Page ${pageNum}] Pagination debug:`, paginationDebug);
+          
+          // Try multiple selectors for Adobe pagination
+          const paginationSelectors = [
+            'a[aria-label="View next page"]',
+            'a[aria-label*="next"]',
+            'a[aria-label*="page"]',
+            'a[href*="page"]',
+            'a[class*="next"]',
+            'a[class*="pagination"]',
+            'button[aria-label*="next"]',
+            'button[class*="next"]'
+          ];
+          
+          let nextBtn = null;
+          for (const selector of paginationSelectors) {
+            nextBtn = await page.$(selector);
+            if (nextBtn) {
+              console.log(`[Puppeteer][Adobe] Found pagination link with selector: ${selector}`);
+              break;
+            }
+          }
+          
           if (nextBtn) {
             await nextBtn.evaluate(b => b.scrollIntoView());
             const isDisabled = await (await nextBtn.getProperty('disabled')).jsonValue().catch(() => false);
@@ -1556,6 +1689,7 @@ async function parsePuppeteer(url, keyword) {
       }
       jobs = allJobs;
       // Log summary
+      console.log(`[Puppeteer][Adobe] Pagination loop completed`);
       console.log(`[Puppeteer][Adobe] Pagination summary: jobs per page:`, jobsPerPage);
       console.log(`[Puppeteer][Adobe] Total jobs extracted from first 5 pages: ${jobs.length}`);
       console.log(`[Puppeteer][Adobe] First 10 jobs:`, jobs.slice(0, 10));
